@@ -12,4 +12,4 @@ certoraRun \
     --send_only \
     --cloud \
     $RULE \
-    --msg "ERC20 verification: $R1"
+    --msg "ERC20 verification: $1"
