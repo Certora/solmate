@@ -5,17 +5,17 @@ import {Authority, Auth} from "../../../src/auth/Auth.sol";
 
 /// More implementations of authorities can be found at "../../auth/authorities"
 
-/// @notice A dummy implementation for an Authority
+/// @notice A harness implementation for an Authority
 /// @dev This contract is implemented using a mapping of:
 ///         user => target => functionSig => canCall
-contract DummyAuthority is Authority {
+contract AuthorityHarness is Authority {
     mapping(address => mapping(address => mapping(bytes4 => bool))) public _canCall;
 
     function canCall(
         address user,
         address target,
         bytes4 functionSig
-    ) external view returns (bool) {
+    ) external view override returns (bool) {// -> override
         return _canCall[user][target][functionSig];
     }
 
@@ -29,10 +29,10 @@ contract DummyAuthority is Authority {
     }
 }
 
-/// @notice A dummy implementation for an Authenticated contract
-/// @dev This contract uses the DummyAuthority contract as an authority
-contract DummyAuth is Auth {
-    constructor() Auth(msg.sender, new DummyAuthority()) {}
+/// @notice A harness implementation for an Authenticated contract
+/// @dev This contract uses the AuthorityHarness contract as an authority
+contract AuthHarness is Auth {
+    constructor() Auth(msg.sender, new AuthorityHarness()) {}
 
     fallback() external requiresAuth {}
 
