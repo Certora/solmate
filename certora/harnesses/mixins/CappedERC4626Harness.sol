@@ -5,15 +5,15 @@ import {ERC20} from "../../../src/tokens/ERC20.sol";
 import {ERC4626} from "../../../src/mixins/ERC4626.sol";
 import {Owned} from "../../../src/auth/Owned.sol";
 
-/// @notice A dummy implementation for the ERC4626 vault standard
+/// @notice A harness implementation for the ERC4626 vault standard
 /// @dev This contract implements the `totalAssets()` function by accounting 
 ///      every change to the contract's balance. 
 ///      The owner can account the accrued rewards using the `accrueRewards()` function.
 /// @notice Every user here can deposit `maxDeposit()` on total, 
 ///         withdrawals aren't subtracted from the deposited balance.
-contract DummyERC4626Accounting is ERC4626, Owned {
+contract ERC4626AccountingHarness is ERC4626, Owned {
     constructor(address _asset) 
-        ERC4626(ERC20(_asset), "Dummy ERC4626", "DERC4626") 
+        ERC4626(ERC20(_asset), "ERC4626 Harness", "ERC4626H") 
         Owned(msg.sender) 
     {}
 

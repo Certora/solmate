@@ -11,16 +11,16 @@ interface IStrategy {
     function totalAssets() external view returns (uint);
 }
 
-/// @notice A dummy implementation for the ERC4626 vault standard
+/// @notice A harness implementation for the ERC4626 vault standard
 /// @dev    This contract implements the afterDeposit and beforeWithdraw functions
 ///         by depositing and withdrawing from a strategy. 
-///         The vaule returned by the totalAssets function is the value of strategy.totalAssets().
-contract DummyERC4626Accounting is ERC4626, Owned {
+///         The value returned by the totalAssets function is the value of strategy.totalAssets().
+contract ERC4626AccountingHarness is ERC4626, Owned {
 
     IStrategy strategy;
 
     constructor(address _asset, address _strategy) 
-        ERC4626(ERC20(_asset), "Dummy ERC4626", "DERC4626") 
+        ERC4626(ERC20(_asset), "ERC4626 Harness", "ERC4626H") 
         Owned(msg.sender) 
     {
         strategy = IStrategy(_strategy);
@@ -50,7 +50,7 @@ contract DummyERC4626Accounting is ERC4626, Owned {
     }
 }
 
-contract DummyStrategy is IStrategy {
+contract StrategyHarness is IStrategy {
     ERC20 asset;
     ERC4626 vault;
     address owner;
