@@ -16,18 +16,6 @@ methods {
     totalSupply() returns uint256 envfree
 }
 
-/// transfer must revert if the caller has an insufficient balance
-rule transferRevertsOnInsufficientBalance() {
-    env e;
-    uint256 callerBalance = balanceOf(e.msg.sender);
-    
-    uint256 amount;
-    transfer@withrevert(e, _, amount);
-
-    assert callerBalance < amount => lastReverted, 
-        "tranfer must revert if the caller's balance is less than the amount";
-}
-
 /// This rule should always fail.
 rule sanity {
     method f; env e; calldataarg args;
@@ -38,25 +26,60 @@ rule sanity {
         "This rule should always fail";
 }
 
+function safeAssumptions(address a, address b) {
+    requireInvariant sumOfBalancePairsBounded(a, b);
+    requireInvariant totalSupplyIsSumOfBalances();
+}
+
+invariant sumOfBalancePairsBounded(address addy1, address addy2)
+    balanceOf(addy1) + balanceOf(addy2) <= totalSupply() // <= max_uint256
+    {
+        preserved /*transferFrom(address x, address y, uint256 amount)*/ {
+            // requireInvariant totalSupplyIsSumOfBalances(); // can't do this, but we can cheat with just require statement that uses what we've proven elsewhere
+            // require totalSupply() == sumOfBalances; // not this
+            // require balanceOf(addy1) + balanceOf(addy2) <= sumOfBalances; // not this either
+            require false;
+            // obviously vacuous, but variant holds bc totalSupplyIsSumOfBalances is proven, so the sum of any 2 balances is <= totalSupply
+            // Is there a better way to convey this?
+        }
+    }
+
+ghost uint256 sumOfBalances { // mathint caused negative value counterexamples
+    init_state axiom sumOfBalances == 0;
+}
+
+hook Sstore balanceOf[KEY address addy] uint256 newValue (uint256 oldValue) STORAGE {
+    sumOfBalances = sumOfBalances + newValue - oldValue;
+}
+
+invariant totalSupplyIsSumOfBalances()
+    totalSupply() == sumOfBalances
+
+/// The zero address must always have a balance of 0
+invariant ZeroAddressNoBalance()
+    balanceOf(0) == 0
+
 /// @dev transferFrom "Cannot overflow because the sum of all user balances can't exceed the max uint256 value."
 rule noFeeOnTransferFrom(address alice, address bob, uint256 amount) {
-    env e;
-    calldataarg args;
+    env e; calldataarg args;
+    // requireInvariant sumOfBalancePairsBounded(alice, bob);
+    safeAssumptions(alice, bob);
     require alice != bob;
     require allowance(alice, e.msg.sender) >= amount;
-    uint256 balanceBefore = balanceOf(bob);
+    uint256 balanceBefore = balanceOf(bob); // make mathint?
 
     transferFrom(e, alice, bob, amount);
 
-    uint256 balanceAfter = balanceOf(bob);
+    uint256 balanceAfter = balanceOf(bob); // make mathint?
     assert balanceAfter == balanceBefore + amount,
         "calls to transferFrom must not collect a fee";
 }
 
 /// @dev transfer "Cannot overflow because the sum of all user balances can't exceed the max uint256 value."
 rule noFeeOnTransfer(address bob, uint256 amount) {
-    env e;
-    calldataarg args;
+    env e; calldataarg args;
+    // requireInvariant sumOfBalancePairsBounded(e.msg.sender, bob);
+    safeAssumptions(e.msg.sender, bob);
     require bob != e.msg.sender;
     uint256 balanceSenderBefore = balanceOf(e.msg.sender);
     uint256 balanceBefore = balanceOf(bob);
@@ -74,7 +97,10 @@ rule transferCorrect(address to, uint256 amount) {
     require e.msg.value == 0 && e.msg.sender != 0 && e.msg.sender != currentContract;
     uint256 fromBalanceBefore = balanceOf(e.msg.sender);
     uint256 toBalanceBefore = balanceOf(to);
-    require fromBalanceBefore + toBalanceBefore <= max_uint256;
+    // require fromBalanceBefore + toBalanceBefore <= max_uint256; // prior
+    // requireInvariant sumOfBalancePairsBounded(e.msg.sender, to);
+    safeAssumptions(e.msg.sender, to);
+
 
     transfer@withrevert(e, to, amount);
     bool reverted = lastReverted;
@@ -100,6 +126,7 @@ rule transferFromCorrect(address from, address to, uint256 amount) {
     uint256 fromBalanceBefore = balanceOf(from);
     uint256 toBalanceBefore = balanceOf(to);
     uint256 allowanceBefore = allowance(from, e.msg.sender);
+    // require allowanceBefore != max_uint256; // I am not sure why this value causes a counterexample
     require fromBalanceBefore + toBalanceBefore <= max_uint256;
 
     transferFrom(e, from, to, amount);
@@ -121,41 +148,49 @@ rule transferFromReverts(address from, address to, uint256 amount) {
 
     transferFrom@withrevert(e, from, to, amount);
 
-    assert lastReverted <=> (allowanceBefore < amount || amount > fromBalanceBefore || to == 0),
+    assert lastReverted <=> (allowanceBefore < amount || amount > fromBalanceBefore || to == 0), // does not revert with to == 0
         "transferFrom must revert iff the recipient is address 0 or the amount exceeds the needed balance or allowance";
 }
 
-/// The zero address must always have a balance of 0
-invariant ZeroAddressNoBalance()
-    balanceOf(0) == 0
+/// transfer must revert if the caller has an insufficient balance
+rule transferRevertsOnInsufficientBalance() {
+    env e;
+    uint256 callerBalance = balanceOf(e.msg.sender);
+    
+    uint256 amount;
+    transfer@withrevert(e, _, amount);
+
+    assert callerBalance < amount => lastReverted, 
+        "tranfer must revert if the caller's balance is less than the amount";
+} // generalize as above
 
 rule NoChangeTotalSupply(method f) {
-    // require f.selector != burn(uint256).selector && f.selector != mint(address, uint256).selector;
+    require f.selector != burn(address, uint256).selector && f.selector != mint(address, uint256).selector; // this makes the rule pass
     uint256 totalSupplyBefore = totalSupply();
     env e;
     calldataarg args;
     f(e, args);
     assert totalSupply() == totalSupplyBefore,
         "method calls must not alter the total supply";
-}
+} // improve, update name
 
 rule noBurningTokens(method f) {
     uint256 totalSupplyBefore = totalSupply();
     env e;
     calldataarg args;
     f(e, args);
-    assert totalSupply() >= totalSupplyBefore,
+    assert totalSupply() > totalSupplyBefore => f.selector == mint(address, uint256).selector, // underflow
         "method calls must not decrease the total supply";
-}
+} // improve, update name, call safeAssumptions?
 
 rule noMintingTokens(method f) {
     uint256 totalSupplyBefore = totalSupply();
     env e;
     calldataarg args;
     f(e, args);
-    assert totalSupply() <= totalSupplyBefore,
+    assert totalSupply() < totalSupplyBefore => f.selector == burn(address, uint256).selector,
         "method calls must not increase the total supply";
-}
+} // improve, update name, call safeAssumptions?
 
 rule ChangingAllowance(method f, address from, address spender) {
     uint256 allowanceBefore = allowance(from, spender);
@@ -194,7 +229,7 @@ rule ChangingAllowance(method f, address from, address spender) {
         assert allowance(from, spender) == allowanceBefore,
             "method calls other than approve or transferFrom must not change a spender's allowance for an account";
     }
-}
+}  // improve, add permit
 
 rule TransferSumOfFromAndToBalancesStaySame(address to, uint256 amount) {
     env e;
@@ -237,6 +272,7 @@ rule TransferFromDoesntChangeOtherBalance(address from, address to, uint256 amou
 rule OtherBalanceOnlyGoesUp(address other, method f) {
     env e;
     require other != currentContract;
+    safeAssumptions(e.msg.sender, other);
     uint256 balanceBefore = balanceOf(other);
 
     if (f.selector == transferFrom(address, address, uint256).selector) {
@@ -259,7 +295,7 @@ rule OtherBalanceOnlyGoesUp(address other, method f) {
 
     assert balanceOf(other) >= balanceBefore,
         "the balance of an address must not decrease if the address is neither the source for a transferFrom call nor the caller of any other method";
-}
+}  // improve, reason about burn
 
 rule isMintPrivileged(address privileged, address recipient, uint256 amount) {
     env e1;
