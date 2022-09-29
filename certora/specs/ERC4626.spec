@@ -1,7 +1,5 @@
 // import "../helpers/erc20.spec"
 
-
-
 methods {
     name() returns string envfree;
     symbol() returns string envfree;
@@ -39,18 +37,6 @@ methods {
 }
 
 //// # vault cannot rob you ////////////////////////////////////////////////////
-
-
-//// # you cannot rob vault ////////////////////////////////////////////////////
-
-
-//// # you cannot rob another ////////////////////////////////////////////////////
-
-
-
-
-
-
 
 rule contributingProducesShares(method f)
 filtered {
@@ -109,7 +95,6 @@ rule onlyContributionMethodsReduceAssets(method f) {
         "a user's assets must not go down except on calls to contribution methods";
 }
 
-
 rule reclaimingProducesAssets(method f)
 filtered {
     f -> f.selector == withdraw(uint256,address,address).selector
@@ -148,9 +133,16 @@ function callReclaimingMethods(env e, method f, uint256 assets, uint256 shares, 
     }
 }
 
+rule vaultMustAllowReclaiming() {
+    assert false,
+        "TODO calls to withdraw and redeem must not revert improperly";
+}
 
+invariant totalAssetsLeqVaultAssetBalance()
+    totalAssets() <= userAssets(currentContract)
 
-
+invariant totalAssetsAsSharesLeqVaultAssetBalanceAsShares()
+    convertToShares(totalAssets()) <= convertToShares(userAssets(currentContract))
 
 invariant vaultSolvency()
     totalAssets() >= convertToAssets(totalSupply()) && 
@@ -172,6 +164,7 @@ invariant vaultSolvencyShares()
         }
     }
 */
+
 ghost uint256 sumOfBalances {
     init_state axiom sumOfBalances == 0;
 }
@@ -186,13 +179,58 @@ invariant totalSupplyIsSumOfBalances()
 
 invariant sumOfBalancePairsBounded(address addy1, address addy2)
     addy1 != addy2 => balanceOf(addy1) + balanceOf(addy2) <= totalSupply()
-    // balanceOf(addy1) + balanceOf(addy2) <= totalSupply()
     {
         preserved {
             // because totalSupplyIsSumOfBalances is proven, the sum of any distinct two must be less than totalSupply
             require false; // this feels more honest than pretending
         }
     }
+
+invariant singleBalanceBounded(address addy)
+    balanceOf(addy) <= totalSupply()
+    {
+        preserved {
+            // because totalSupplyIsSumOfBalances is proven, any single balance must be less than totalSupply
+            require false; // this feels more honest than pretending
+        }
+    }
+
+rule totalSupplyReflectsMintingBurningShares {
+    assert false,
+        "TODO totalSupply must reflect minting and burning of shares";
+}
+
+rule totalAssetsReflectsContributionReclaimingAssets {
+    assert false,
+        "TODO totalAssets must reflect contribution and reclaiming of assets";
+}
+
+//// # you cannot rob vault ////////////////////////////////////////////////////
+
+
+
+//// # you cannot rob another //////////////////////////////////////////////////
+
+
+
+//// # state change properties //////////////////////////////////////////////////
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 // invariant noSupplyIffNoAssets() // broken
 //     totalSupply() == 0 <=> userAssets(currentContract) == 0
