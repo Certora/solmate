@@ -11,16 +11,16 @@ contract ERC721Harness is ERC721 {
     function mint(address to, uint tokenId) external {
         _mint(to, tokenId);
     }
+    function burn(uint tokenId) external {
+        _burn(tokenId);
+    }
 
     function safeMint(address to, uint tokenId) external {
         _safeMint(to, tokenId);
     }
+
     function safeMint(address from, uint tokenId, bytes memory data) external {
         _safeMint(from, tokenId, data);
-    }
-
-    function burn(uint tokenId) external {
-        _burn(tokenId);
     }
 
     function tokenURI(uint256) public view override returns (string memory) {

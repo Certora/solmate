@@ -26,11 +26,6 @@ rule sanity {
         "This rule should always fail";
 }
 
-function safeAssumptions(address a, address b) {
-    requireInvariant sumOfBalancePairsBounded(a, b);
-    requireInvariant totalSupplyIsSumOfBalances();
-}
-
 invariant sumOfBalancePairsBounded(address addy1, address addy2)
     balanceOf(addy1) + balanceOf(addy2) <= totalSupply() // <= max_uint256
     {
@@ -42,7 +37,12 @@ invariant sumOfBalancePairsBounded(address addy1, address addy2)
             // obviously vacuous, but variant holds bc totalSupplyIsSumOfBalances is proven, so the sum of any 2 balances is <= totalSupply
             // Is there a better way to convey this?
         }
-    }
+    } // addy1 != addy2
+
+// prove for any transacation, at most 2 bnalances change
+// rule given 2 balances <= totalSupply, 
+// given a tx that changes at most these two, they are still less than totalSUpply
+
 
 ghost uint256 sumOfBalances { // mathint caused negative value counterexamples
     init_state axiom sumOfBalances == 0;
@@ -58,6 +58,14 @@ invariant totalSupplyIsSumOfBalances()
 /// The zero address must always have a balance of 0
 invariant ZeroAddressNoBalance()
     balanceOf(0) == 0
+
+function safeAssumptions(address a, address b) {
+    requireInvariant sumOfBalancePairsBounded(a, b);
+    requireInvariant totalSupplyIsSumOfBalances();
+}
+
+// add this hook only after invariant totalSupplyIsSumOfBalances
+// w hook on Sload, we can assume sumOfBalancers >= value now loaded
 
 /// @dev transferFrom "Cannot overflow because the sum of all user balances can't exceed the max uint256 value."
 rule noFeeOnTransferFrom(address alice, address bob, uint256 amount) {

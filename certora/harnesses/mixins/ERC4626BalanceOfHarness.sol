@@ -17,4 +17,8 @@ contract ERC4626BalanceOfHarness is ERC4626 {
     function totalAssets() public view override returns (uint256) {
         return asset.balanceOf(address(this));
     }
+
+    function userAssets(address user) public view returns (uint256) { // harnessed
+        return asset.balanceOf(user);
+    }
 }
