@@ -36,6 +36,100 @@ methods {
     DOMAIN_SEPARATOR() returns bytes32;
 }
 
+
+
+////////////////////////////////////////////////////////////////////////////////
+//// # mathematical properties /////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+
+// weak monotonicity
+// weak additivity
+// epsilon error delta
+// convertToAssets(a) + convertToAssets(b) is within epsilon of convertToAssets(a + b)
+// current assets of system
+// invariants when, how
+
+//// # strong and weak monotonicity ////////////////////////////////////////////
+
+rule monotonicity() {
+    method f; env e; calldataarg args;
+    f(e, args);
+
+    assert false,
+        "TODO implement montonicity rule";
+}
+
+//// # strong and weak additivity //////////////////////////////////////////////
+
+
+//// # zero ////////////////////////////////////////////////////////////////////
+
+invariant noSupplyIffNoAssets() // broken
+    totalSupply() == 0 <=> userAssets(currentContract) == 0
+
+//// # function epsilon ////////////////////////////////////////////////////////
+
+rule contributionMethodWeakEquivalence() {
+    env e; storage before = lastStorage;
+    address contractAddress = currentContract; address assetAddress = asset();
+    address receiver; uint256 receiverPriorBalance = balanceOf(receiver);
+    uint256 senderPriorAssets = userAssets(e.msg.sender);
+    require contractAddress != e.msg.sender
+         && contractAddress != receiver
+         && contractAddress != assetAddress;
+
+    requireInvariant sumOfBalancePairsBounded(e.msg.sender, receiver);
+    requireInvariant vaultSolvency();
+
+    uint256 assets; uint256 shares;
+
+    deposit(e, assets, receiver) at before; // 1 asset in, 102 shares out from previewDeposit [ (1 * 102) / 1 ] -> [ (assets * totalSupply) / totalAssets ]
+    uint256 depositAssetsIn = senderPriorAssets - userAssets(e.msg.sender);
+    uint256 depositSharesOut = balanceOf(receiver) - receiverPriorBalance;
+    
+    mint(e, shares, receiver) at before; // 1 asset in, 1 share out from previewMint [ (((1 * 1) - 1) / 120) + 1 ] -> [ (((shares * totalAssets) - 1) / denominator) + 1 ]
+    uint256 mintAssetsIn = senderPriorAssets - userAssets(e.msg.sender);
+    uint256 mintSharesOut = balanceOf(receiver) - receiverPriorBalance;
+
+    assert depositAssetsIn == mintAssetsIn => depositSharesOut <= mintSharesOut,
+        "if deposit and mint contribute equal assets, then deposit must produce shares less than or equal to mint";
+    assert depositSharesOut == mintSharesOut => depositAssetsIn <= mintAssetsIn,
+        "if deposit and mint produce equal shares, then deposit must contribute assets less than or equal to mint";
+    
+}
+
+rule reclaimingMethodWeakEquivalence() {
+    env e; storage before = lastStorage;
+    address contractAddress = currentContract; address assetAddress = asset();
+    address receiver; uint256 receiverPriorAssets = userAssets(receiver);
+    address owner; uint256 ownerPriorBalance = balanceOf(owner);
+    require contractAddress != receiver
+         && contractAddress != owner
+         && contractAddress != assetAddress;
+
+    requireInvariant sumOfBalancePairsBounded(owner, receiver);
+    requireInvariant vaultSolvency();
+
+    uint256 assets; uint256 shares;
+
+    withdraw(e, assets, receiver, owner) at before;
+    uint256 withdrawSharesIn = ownerPriorBalance - balanceOf(owner);
+    uint256 withdrawAssetsOut = userAssets(receiver) - receiverPriorAssets;
+    
+    redeem(e, shares, receiver, owner) at before; 
+    uint256 redeemSharesIn = ownerPriorBalance - balanceOf(owner);
+    uint256 redeemAssetsOut = userAssets(receiver) - receiverPriorAssets;
+
+    assert withdrawSharesIn == redeemSharesIn => withdrawAssetsOut >= redeemAssetsOut,
+        "if withdraw and redeem trade in equal shares, then withdraw must produce assets greater than or equal to redeem";
+    assert withdrawAssetsOut == redeemAssetsOut => withdrawSharesIn >= redeemSharesIn,
+        "if withdraw and redeem produce equal assets, then withdraw must contribute shares greater than or equal to redeem";    
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//// # stakeholder properties //////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+
 //// # vault cannot rob you ////////////////////////////////////////////////////
 
 rule contributingProducesShares(method f)
@@ -141,29 +235,12 @@ rule vaultMustAllowReclaiming() {
 invariant totalAssetsLeqVaultAssetBalance()
     totalAssets() <= userAssets(currentContract)
 
-invariant totalAssetsAsSharesLeqVaultAssetBalanceAsShares()
+invariant totalAssetsAsSharesLeqVaultAssetBalanceAsShares() // rewrite as rule, as x <= y => f(x) <= f(y)
     convertToShares(totalAssets()) <= convertToShares(userAssets(currentContract))
 
 invariant vaultSolvency()
     totalAssets() >= convertToAssets(totalSupply()) && 
     convertToShares(totalAssets()) >= totalSupply()
-/*
-invariant vaultSolvencyAssets()
-    totalAssets() >= convertToAssets(totalSupply())
-    {
-        preserved {
-            requireInvariant vaultSolvencyShares();
-        }
-    }
-
-invariant vaultSolvencyShares()
-    convertToShares(totalAssets()) >= totalSupply()
-    {
-        preserved {
-            requireInvariant vaultSolvencyAssets();
-        }
-    }
-*/
 
 ghost uint256 sumOfBalances {
     init_state axiom sumOfBalances == 0;
@@ -183,6 +260,8 @@ invariant sumOfBalancePairsBounded(address addy1, address addy2)
         preserved {
             // because totalSupplyIsSumOfBalances is proven, the sum of any distinct two must be less than totalSupply
             require false; // this feels more honest than pretending
+            // state assumption and say why safe assumption
+            // write and function (safe assumptions function) with requireInvariants
         }
     }
 
@@ -205,37 +284,83 @@ rule totalAssetsReflectsContributionReclaimingAssets {
         "TODO totalAssets must reflect contribution and reclaiming of assets";
 }
 
+/*
+invariant vaultSolvencyAssets()
+    totalAssets() >= convertToAssets(totalSupply())
+    {
+        preserved {
+            requireInvariant vaultSolvencyShares();
+        }
+    }
+
+invariant vaultSolvencyShares()
+    convertToShares(totalAssets()) >= totalSupply()
+    {
+        preserved {
+            requireInvariant vaultSolvencyAssets();
+        }
+    }
+*/
+
 //// # you cannot rob vault ////////////////////////////////////////////////////
 
 
 
-//// # you cannot rob another //////////////////////////////////////////////////
+//// # you cannot rob another user /////////////////////////////////////////////
 
 
 
-//// # state change properties //////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+//// # variable change properties //////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+
+rule assetsSupplyChangeTogether {
+    assert false,
+    // assert (totalSupplyBefore < totalSupplyAfter <=> totalAssetsBefore < totalAssetsAfter)
+    //     && (totalSupplyBefore > totalSupplyAfter <=> totalAssetsBefore > totalAssetsAfter),
+        "increases and decreases in totalSupply must occur with corresponding increases and decreases in totalAssets";
+}// math rule
 
 
+////////////////////////////////////////////////////////////////////////////////
+//// # variable relationship properties ////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
+////////////////////////////////////////////////////////////////////////////////
+//// # state change properties /////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
 
 // invariant noSupplyIffNoAssets() // broken
 //     totalSupply() == 0 <=> userAssets(currentContract) == 0
 
-/* 
+invariant assetIsNotVaultToken()
+    asset() != currentContract
+
+// rule asset doesn't change after method
+
+rule contractCannotCallIoMethods {
+    assert false,
+        "the vault must not be able to call its own contribution and reclaiming functions";
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 invariant convertToAssetsAdditivity(uint256 sharesA, uint256 sharesB) // this isn't true
     convertToAssets(sharesA) + convertToAssets(sharesB) == convertToAssets(sharesA + sharesB)
     {
@@ -245,7 +370,7 @@ invariant convertToAssetsAdditivity(uint256 sharesA, uint256 sharesB) // this is
                  && to_mathint(convertToAssets(sharesA + sharesB)) < max_uint256;
         }
     }
-*/
+
 
 // invariant totalAssetsIsSumOfAssets() // not useful?
 //     totalAssets() == convertToAssets(sumOfBalances)
@@ -270,16 +395,11 @@ invariant convertToAssetsAdditivity(uint256 sharesA, uint256 sharesB) // this is
 // assert total supply increase <=> total assets increase
 
 // Bank (!!!) No one should be able to remove assets from the vault without trading in shares
-/*
-rule assetsSupplyChangeTogether {
-    assert false,
-    // assert (totalSupplyBefore < totalSupplyAfter <=> totalAssetsBefore < totalAssetsAfter)
-    //     && (totalSupplyBefore > totalSupplyAfter <=> totalAssetsBefore > totalAssetsAfter),
-        "increases and decreases in totalSupply must occur with corresponding increases and decreases in totalAssets";
-}
+
+
 
 // Bank Assets (totalAssets or balanceOf(contract address)) must equal or exceed liabilities (totalSupply)
-*/
+
 
 /// This rule should always fail.
 rule sanity {
