@@ -82,7 +82,7 @@ rule testDepositStrongWeakMonotonicity() {
         assert smallerAssets < largerAssets => smallerShares <= largerShares,
             "when supply tokens outnumber asset tokens, a larger deposit of assets will produce an equal or greater number of shares";
     } else {
-        assert smallerAssets < largerAssets => smallerShares < largerShares, // passes when smallerShares <= largerShares
+        assert smallerAssets < largerAssets => smallerShares < largerShares, // passes when smallerShares <= largerShares, could simplify to exclude token ratios
             "when supply tokens do not outnumber asset tokens, a larger deposit of assets will produce a greater number of shares";
     }
 }
@@ -119,15 +119,15 @@ rule generalWeakMonotonicity() {
 
     assert totalSupplyChangeA < totalSupplyChangeB => totalAssetsChangeA <= totalAssetsChangeB;
     assert totalSupplyChangeA == totalSupplyChangeB => totalAssetsChangeA == totalAssetsChangeB;
-    assert totalSupplyChangeA > totalSupplyChangeB => totalAssetsChangeA >= totalAssetsChangeB; // probably not necessary
+    assert totalSupplyChangeA > totalSupplyChangeB => totalAssetsChangeA >= totalAssetsChangeB; // probably not necessary because of A-B equivalence
 
 }
 
 //// # strong and weak additivity //////////////////////////////////////////////
 
 
-// invariant convertToAssetsAdditivity(uint256 sharesA, uint256 sharesB) // this isn't true
-//     convertToAssets(sharesA) + convertToAssets(sharesB) == convertToAssets(sharesA + sharesB)
+// invariant convertToAssetsAdditivity(uint256 sharesA, uint256 sharesB) // this isn't true w ==
+//     convertToAssets(sharesA) + convertToAssets(sharesB) <= convertToAssets(sharesA + sharesB) // == --> <= bc convertToAssets always rounds down
 //     {
 //         preserved {
 //             require to_mathint(sharesA) + to_mathint(sharesB) < max_uint128
@@ -135,6 +135,64 @@ rule generalWeakMonotonicity() {
 //                  && to_mathint(convertToAssets(sharesA + sharesB)) < max_uint256;
 //         }
 //     }
+
+// invariant convertToAssetsAdditivityWOMI(uint256 sharesA, uint256 sharesB) // this isn't true w ==
+//     convertToAssets(sharesA) + convertToAssets(sharesB) <= convertToAssets(sharesA + sharesB) // == --> <= bc convertToAssets always rounds down
+//     {
+//         preserved {
+//             require sharesA + sharesB < max_uint128
+//                  && convertToAssets(sharesA) + convertToAssets(sharesB) < max_uint256
+//                  && convertToAssets(sharesA + sharesB) < max_uint256;
+//         }
+//     }
+
+invariant convertToAssetsAdditivityIMPL(uint256 sharesA, uint256 sharesB) // this isn't true w ==
+    sharesA + sharesB < max_uint128 &&
+    convertToAssets(sharesA) + convertToAssets(sharesB) < max_uint256 &&
+    convertToAssets(sharesA + sharesB) < max_uint256 =>
+    convertToAssets(sharesA) + convertToAssets(sharesB) <= convertToAssets(sharesA + sharesB) // == --> <= bc convertToAssets always rounds down
+
+// ==========================
+
+// invariant convertToSharesAdditivity(uint256 assetsA, uint256 assetsB) // true?
+//     convertToShares(assetsA) + convertToShares(assetsB) <= convertToShares(assetsA + assetsB) // == --> <= bc convertToShares always rounds down
+//     {
+//         preserved {
+//             require to_mathint(assetsA) + to_mathint(assetsB) < max_uint128
+//                  && to_mathint(convertToShares(assetsA)) + to_mathint(convertToShares(assetsB)) < max_uint256
+//                  && to_mathint(convertToShares(assetsA + assetsB)) < max_uint256;
+//         }
+//     }
+
+// invariant convertToSharesAdditivityWOMI(uint256 assetsA, uint256 assetsB) // true?
+//     convertToShares(assetsA) + convertToShares(assetsB) <= convertToShares(assetsA + assetsB) // == --> <= bc convertToShares always rounds down
+//     {
+//         preserved {
+//             require assetsA + assetsB < max_uint128
+//                  && convertToShares(assetsA) + convertToShares(assetsB) < max_uint256
+//                  && convertToShares(assetsA + assetsB) < max_uint256;
+//         }
+//     }
+
+invariant convertToSharesAdditivityIMPL(uint256 assetsA, uint256 assetsB) // true?
+    assetsA + assetsB < max_uint128 &&
+    convertToShares(assetsA) + convertToShares(assetsB) < max_uint256 &&
+    convertToShares(assetsA + assetsB) < max_uint256 =>
+    convertToShares(assetsA) + convertToShares(assetsB) <= convertToShares(assetsA + assetsB) // == --> <= bc convertToShares always rounds down
+
+// invariant sharesAssetsSharesWeakIntegrity(uint256 shares)
+//     convertToShares(convertToAssets(shares)) <= shares
+
+// invariant assetsSharesAssetsWeakIntegrity(uint256 assets)
+//     convertToAssets(convertToShares(assets)) <= assets
+
+// invariant conversionWeakIntegrity(uint256 shares, uint256 assets)
+//     convertToShares(convertToAssets(shares)) <= shares &&
+//     convertToAssets(convertToShares(assets)) <= assets
+
+invariant conversionWeakIntegritySORA(uint256 sharesOrAssets)
+    convertToShares(convertToAssets(sharesOrAssets)) <= sharesOrAssets &&
+    convertToAssets(convertToShares(sharesOrAssets)) <= sharesOrAssets
 
 //// # zero ////////////////////////////////////////////////////////////////////
 
@@ -349,6 +407,7 @@ invariant singleBalanceBounded(address addy)
     }
 
 rule totalSupplyReflectsMintingBurningShares {
+
     assert false,
         "TODO totalSupply must reflect minting and burning of shares";
 }
