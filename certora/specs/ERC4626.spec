@@ -51,6 +51,10 @@ methods {
 
 //// # strong and weak monotonicity ////////////////////////////////////////////
 
+// this rule is an example dealing with only deposit
+// option 1 (repetitious, simple): write 4 rules
+// option 2 (less repetitious, less simple): write 2 rules, 1 for share-unit methods, 1 for asset-unit methods
+// option 3 (succinct, more complex): write 1 rule handling all 4 methods
 rule depositStrongWeakMonotonicity() { // before simplifying to exclude token ratios, consider whether the improper behavior is a bug.
     env e; storage before = lastStorage;
 
@@ -111,43 +115,6 @@ function updateChangeMarker(env e, uint256 oldLevel, uint256 newLevel) returns u
         return to_uint256(oldLevel - newLevel);
     }
 }
-
-/*
-rule generalWeakMonotonicity() {
-    method f; env e; calldataarg args;
-    storage before = lastStorage;
-    uint256 totalSupplyBefore = totalSupply();
-    uint256 totalAssetsBefore = totalAssets();
-    uint256 totalSupplyChangeA; uint256 totalSupplyChangeB;
-    uint256 totalAssetsChangeA; uint256 totalAssetsChangeB;
-    f(e, args) at before; // check to see if signs can be opposite
-    if (totalSupplyBefore <= totalSupply()) {
-        totalSupplyChangeA = totalSupply() - totalSupplyBefore;
-    } else {
-        totalSupplyChangeA = totalSupplyBefore - totalSupply();
-    }
-    if (totalAssetsBefore <= totalAssets()) {
-        totalAssetsChangeA = totalAssets() - totalAssetsBefore;
-    } else {
-        totalAssetsChangeA = totalAssetsBefore - totalAssets();
-    }
-    f(e, args) at before;
-        if (totalSupplyBefore <= totalSupply()) {
-        totalSupplyChangeB = totalSupply() - totalSupplyBefore;
-    } else {
-        totalSupplyChangeB = totalSupplyBefore - totalSupply();
-    }
-    if (totalAssetsBefore <= totalAssets()) {
-        totalAssetsChangeB = totalAssets() - totalAssetsBefore;
-    } else {
-        totalAssetsChangeB = totalAssetsBefore - totalAssets();
-    }
-
-    assert totalSupplyChangeA < totalSupplyChangeB => totalAssetsChangeA <= totalAssetsChangeB;
-    assert totalSupplyChangeA == totalSupplyChangeB => totalAssetsChangeA == totalAssetsChangeB;
-    // assert totalSupplyChangeA > totalSupplyChangeB => totalAssetsChangeA >= totalAssetsChangeB; // not necessary because of A-B equivalence
-}
-*/
 
 //// # strong and weak additivity //////////////////////////////////////////////
 
@@ -427,62 +394,50 @@ invariant assetIsNotVaultToken() // violated init state
 //     totalSupply() == 0 <=> userAssets(currentContract) == 0
 
 
-// rule asset doesn't change after method
+rule underlyingCannotChange() {
+    address originalAsset = asset();
+
+    method f; env e; calldataarg args;
+    f(e, args);
+
+    address newAsset = asset();
+
+    assert originalAsset == newAsset,
+        "the underlying asset of a contract must not change";
+}
+
+
+
+////////////////////////////////////////////////////////////////////////////////
+//// # unit test properties ////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+
+
+
+
+////////////////////////////////////////////////////////////////////////////////
+//// # where do these properties fit best? /////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
 
 rule contractCannotCallIoMethods {
     assert false,
         "the vault must not be able to call its own contribution and reclaiming functions";
 }
 
-////////////////////////////////////////////////////////////////////////////////
-//// # unit test properties //////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-//// # State Change Logic //////////////////////////////////////////////////////
-
 // rounding direction in transactions should always favor vault
 
-// No one should trade in shares without receiving assets in return
+// Only I/approved should be able to remove any of the assets/shares I have in the vault // --> distinct permissions section?
 
-// ********************* Risks to vault ************************************************************************************
-
-// Bank No one should receive shares without contributing assets to the vault (account for staking etc.)
-// assert total supply increase <=> total assets increase
+// No one should be able to take out more than they have in the vault // --> like solvency but personal
 
 
 
-// Bank Assets (totalAssets or balanceOf(contract address)) must equal or exceed liabilities (totalSupply)
 
 
-// ********************* Permissions ************************************************************************************
 
-// Only I/approved should be able to remove any of the assets/shares I have in the vault
 
-// No one should be able to take out more than they have in the vault
+
+
 
 
 
@@ -500,8 +455,6 @@ rule sanity {
 
 
 /*
-
-
 
 //// # convertTo_____ previewFunction //////////////////////////////////////////
 
@@ -574,6 +527,7 @@ rule redeemMaxRedeemRelationship {
     assert false,
         "TODO";    
 }
+
 */
 
 
@@ -689,6 +643,43 @@ invariant vaultSolvencyShares()
 //     totalAssets() == convertToAssets(sumOfBalances)
 
 
+/*
+rule generalWeakMonotonicity() {
+    method f; env e; calldataarg args;
+    storage before = lastStorage;
+    uint256 totalSupplyBefore = totalSupply();
+    uint256 totalAssetsBefore = totalAssets();
+    uint256 totalSupplyChangeA; uint256 totalSupplyChangeB;
+    uint256 totalAssetsChangeA; uint256 totalAssetsChangeB;
+    f(e, args) at before; // check to see if signs can be opposite
+    if (totalSupplyBefore <= totalSupply()) {
+        totalSupplyChangeA = totalSupply() - totalSupplyBefore;
+    } else {
+        totalSupplyChangeA = totalSupplyBefore - totalSupply();
+    }
+    if (totalAssetsBefore <= totalAssets()) {
+        totalAssetsChangeA = totalAssets() - totalAssetsBefore;
+    } else {
+        totalAssetsChangeA = totalAssetsBefore - totalAssets();
+    }
+    f(e, args) at before;
+        if (totalSupplyBefore <= totalSupply()) {
+        totalSupplyChangeB = totalSupply() - totalSupplyBefore;
+    } else {
+        totalSupplyChangeB = totalSupplyBefore - totalSupply();
+    }
+    if (totalAssetsBefore <= totalAssets()) {
+        totalAssetsChangeB = totalAssets() - totalAssetsBefore;
+    } else {
+        totalAssetsChangeB = totalAssetsBefore - totalAssets();
+    }
+
+    assert totalSupplyChangeA < totalSupplyChangeB => totalAssetsChangeA <= totalAssetsChangeB;
+    assert totalSupplyChangeA == totalSupplyChangeB => totalAssetsChangeA == totalAssetsChangeB;
+    // assert totalSupplyChangeA > totalSupplyChangeB => totalAssetsChangeA >= totalAssetsChangeB; // not necessary because of A-B equivalence
+}
+*/
+
 
 
 /*
@@ -697,7 +688,7 @@ deposit A   ->  S(A)
 mint  A(S)  ->    S
       [up]
 
-IF  A == A(S) => S(A) <= S
-IF S(A) == S => A <= A(S)
+IF  A   == A(S) => S(A) <=  S
+IF S(A) ==  S   =>  A   <= A(S)
 
 */
