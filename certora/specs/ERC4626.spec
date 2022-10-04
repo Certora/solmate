@@ -51,15 +51,7 @@ methods {
 
 //// # strong and weak monotonicity ////////////////////////////////////////////
 
-rule monotonicity() {
-    method f; env e; calldataarg args;
-    f(e, args);
-
-    assert false,
-        "TODO implement montonicity rule";
-}
-
-rule testDepositStrongWeakMonotonicity() {
+rule depositStrongWeakMonotonicity() { // before simplifying to exclude token ratios, consider whether the improper behavior is a bug.
     env e; storage before = lastStorage;
 
     address receiver; uint256 receiverPriorBalance = balanceOf(receiver);
@@ -79,14 +71,48 @@ rule testDepositStrongWeakMonotonicity() {
     uint256 largerShares = balanceOf(receiver) - receiverPriorBalance;
 
     if (totalSupply() > totalAssets()) {
+        // weakly monotonic behavior when supply tokens outnumber asset tokens
         assert smallerAssets < largerAssets => smallerShares <= largerShares,
             "when supply tokens outnumber asset tokens, a larger deposit of assets will produce an equal or greater number of shares";
     } else {
+        // strongly monotonic behavior when supply tokens do not outnumber asset tokens
         assert smallerAssets < largerAssets => smallerShares < largerShares, // passes when smallerShares <= largerShares, could simplify to exclude token ratios
             "when supply tokens do not outnumber asset tokens, a larger deposit of assets will produce a greater number of shares";
     }
 }
 
+
+
+rule totalsWeakMonotonicity() {
+    method f; env e; calldataarg args;
+    storage before = lastStorage;
+    uint256 totalSupplyBefore = totalSupply();
+    uint256 totalAssetsBefore = totalAssets();
+
+    f(e, args) at before; // check to see if signs can be opposite --> using !(a xor b), but how to account for oldLevel == newLevel
+
+    uint256 totalSupplyChangeA = updateChangeMarker(e, totalSupplyBefore, totalSupply());
+    uint256 totalAssetsChangeA = updateChangeMarker(e, totalAssetsBefore, totalAssets());
+
+    f(e, args) at before;
+
+    uint256 totalSupplyChangeB = updateChangeMarker(e, totalSupplyBefore, totalSupply());
+    uint256 totalAssetsChangeB = updateChangeMarker(e, totalAssetsBefore, totalAssets());
+
+    assert totalSupplyChangeA < totalSupplyChangeB => totalAssetsChangeA <= totalAssetsChangeB;
+    assert totalSupplyChangeA == totalSupplyChangeB => totalAssetsChangeA == totalAssetsChangeB;
+    // assert totalSupplyChangeA > totalSupplyChangeB => totalAssetsChangeA >= totalAssetsChangeB; // not necessary because of A-B equivalence
+}
+
+function updateChangeMarker(env e, uint256 oldLevel, uint256 newLevel) returns uint256 {
+    if (oldLevel <= newLevel) {
+        return to_uint256(newLevel - oldLevel);
+    } else {
+        return to_uint256(oldLevel - newLevel);
+    }
+}
+
+/*
 rule generalWeakMonotonicity() {
     method f; env e; calldataarg args;
     storage before = lastStorage;
@@ -95,23 +121,23 @@ rule generalWeakMonotonicity() {
     uint256 totalSupplyChangeA; uint256 totalSupplyChangeB;
     uint256 totalAssetsChangeA; uint256 totalAssetsChangeB;
     f(e, args) at before; // check to see if signs can be opposite
-    if (totalSupplyBefore <= totalSupply()) { // including equality here, but could be in else block
+    if (totalSupplyBefore <= totalSupply()) {
         totalSupplyChangeA = totalSupply() - totalSupplyBefore;
     } else {
         totalSupplyChangeA = totalSupplyBefore - totalSupply();
     }
-    if (totalAssetsBefore <= totalAssets()) { // including equality here, but could be in else block
+    if (totalAssetsBefore <= totalAssets()) {
         totalAssetsChangeA = totalAssets() - totalAssetsBefore;
     } else {
         totalAssetsChangeA = totalAssetsBefore - totalAssets();
     }
     f(e, args) at before;
-        if (totalSupplyBefore <= totalSupply()) { // including equality here, but could be in else block
+        if (totalSupplyBefore <= totalSupply()) {
         totalSupplyChangeB = totalSupply() - totalSupplyBefore;
     } else {
         totalSupplyChangeB = totalSupplyBefore - totalSupply();
     }
-    if (totalAssetsBefore <= totalAssets()) { // including equality here, but could be in else block
+    if (totalAssetsBefore <= totalAssets()) {
         totalAssetsChangeB = totalAssets() - totalAssetsBefore;
     } else {
         totalAssetsChangeB = totalAssetsBefore - totalAssets();
@@ -119,78 +145,25 @@ rule generalWeakMonotonicity() {
 
     assert totalSupplyChangeA < totalSupplyChangeB => totalAssetsChangeA <= totalAssetsChangeB;
     assert totalSupplyChangeA == totalSupplyChangeB => totalAssetsChangeA == totalAssetsChangeB;
-    assert totalSupplyChangeA > totalSupplyChangeB => totalAssetsChangeA >= totalAssetsChangeB; // probably not necessary because of A-B equivalence
-
+    // assert totalSupplyChangeA > totalSupplyChangeB => totalAssetsChangeA >= totalAssetsChangeB; // not necessary because of A-B equivalence
 }
+*/
 
 //// # strong and weak additivity //////////////////////////////////////////////
 
-
-// invariant convertToAssetsAdditivity(uint256 sharesA, uint256 sharesB) // this isn't true w ==
-//     convertToAssets(sharesA) + convertToAssets(sharesB) <= convertToAssets(sharesA + sharesB) // == --> <= bc convertToAssets always rounds down
-//     {
-//         preserved {
-//             require to_mathint(sharesA) + to_mathint(sharesB) < max_uint128
-//                  && to_mathint(convertToAssets(sharesA)) + to_mathint(convertToAssets(sharesB)) < max_uint256
-//                  && to_mathint(convertToAssets(sharesA + sharesB)) < max_uint256;
-//         }
-//     }
-
-// invariant convertToAssetsAdditivityWOMI(uint256 sharesA, uint256 sharesB) // this isn't true w ==
-//     convertToAssets(sharesA) + convertToAssets(sharesB) <= convertToAssets(sharesA + sharesB) // == --> <= bc convertToAssets always rounds down
-//     {
-//         preserved {
-//             require sharesA + sharesB < max_uint128
-//                  && convertToAssets(sharesA) + convertToAssets(sharesB) < max_uint256
-//                  && convertToAssets(sharesA + sharesB) < max_uint256;
-//         }
-//     }
-
-invariant convertToAssetsAdditivityIMPL(uint256 sharesA, uint256 sharesB) // this isn't true w ==
+invariant convertToAssetsWeakAdditivity(uint256 sharesA, uint256 sharesB) // this isn't true w ==
     sharesA + sharesB < max_uint128 &&
     convertToAssets(sharesA) + convertToAssets(sharesB) < max_uint256 &&
     convertToAssets(sharesA + sharesB) < max_uint256 =>
     convertToAssets(sharesA) + convertToAssets(sharesB) <= convertToAssets(sharesA + sharesB) // == --> <= bc convertToAssets always rounds down
 
-// ==========================
-
-// invariant convertToSharesAdditivity(uint256 assetsA, uint256 assetsB) // true?
-//     convertToShares(assetsA) + convertToShares(assetsB) <= convertToShares(assetsA + assetsB) // == --> <= bc convertToShares always rounds down
-//     {
-//         preserved {
-//             require to_mathint(assetsA) + to_mathint(assetsB) < max_uint128
-//                  && to_mathint(convertToShares(assetsA)) + to_mathint(convertToShares(assetsB)) < max_uint256
-//                  && to_mathint(convertToShares(assetsA + assetsB)) < max_uint256;
-//         }
-//     }
-
-// invariant convertToSharesAdditivityWOMI(uint256 assetsA, uint256 assetsB) // true?
-//     convertToShares(assetsA) + convertToShares(assetsB) <= convertToShares(assetsA + assetsB) // == --> <= bc convertToShares always rounds down
-//     {
-//         preserved {
-//             require assetsA + assetsB < max_uint128
-//                  && convertToShares(assetsA) + convertToShares(assetsB) < max_uint256
-//                  && convertToShares(assetsA + assetsB) < max_uint256;
-//         }
-//     }
-
-invariant convertToSharesAdditivityIMPL(uint256 assetsA, uint256 assetsB) // true?
+invariant convertToSharesWeakAdditivity(uint256 assetsA, uint256 assetsB) // true?
     assetsA + assetsB < max_uint128 &&
     convertToShares(assetsA) + convertToShares(assetsB) < max_uint256 &&
     convertToShares(assetsA + assetsB) < max_uint256 =>
     convertToShares(assetsA) + convertToShares(assetsB) <= convertToShares(assetsA + assetsB) // == --> <= bc convertToShares always rounds down
 
-// invariant sharesAssetsSharesWeakIntegrity(uint256 shares)
-//     convertToShares(convertToAssets(shares)) <= shares
-
-// invariant assetsSharesAssetsWeakIntegrity(uint256 assets)
-//     convertToAssets(convertToShares(assets)) <= assets
-
-// invariant conversionWeakIntegrity(uint256 shares, uint256 assets)
-//     convertToShares(convertToAssets(shares)) <= shares &&
-//     convertToAssets(convertToShares(assets)) <= assets
-
-invariant conversionWeakIntegritySORA(uint256 sharesOrAssets)
+invariant conversionWeakIntegrity(uint256 sharesOrAssets)
     convertToShares(convertToAssets(sharesOrAssets)) <= sharesOrAssets &&
     convertToAssets(convertToShares(sharesOrAssets)) <= sharesOrAssets
 
@@ -219,7 +192,7 @@ rule contributionMethodWeakEquivalence() {
     uint256 depositAssetsIn = senderPriorAssets - userAssets(e.msg.sender);
     uint256 depositSharesOut = balanceOf(receiver) - receiverPriorBalance;
     
-    mint(e, shares, receiver) at before; // 1 asset in, 1 share out from previewMint [ (((1 * 1) - 1) / 120) + 1 ] -> [ (((shares * totalAssets) - 1) / denominator) + 1 ]
+    mint(e, shares, receiver) at before; // 1 asset in, 1 share out from previewMint [ (((1 * 1) - 1) / 102) + 1 ] -> [ (((shares * totalAssets) - 1) / totalSupply) + 1 ]
     uint256 mintAssetsIn = senderPriorAssets - userAssets(e.msg.sender);
     uint256 mintSharesOut = balanceOf(receiver) - receiverPriorBalance;
 
@@ -417,27 +390,6 @@ rule totalAssetsReflectsContributionReclaimingAssets {
         "TODO totalAssets must reflect contribution and reclaiming of assets";
 }
 
-/*
-invariant vaultSolvencyAssets()
-    totalAssets() >= convertToAssets(totalSupply())
-    {
-        preserved {
-            requireInvariant vaultSolvencyShares();
-        }
-    }
-
-invariant vaultSolvencyShares()
-    convertToShares(totalAssets()) >= totalSupply()
-    {
-        preserved {
-            requireInvariant vaultSolvencyAssets();
-        }
-    }
-*/
-
-// invariant totalAssetsIsSumOfAssets() // not useful?
-//     totalAssets() == convertToAssets(sumOfBalances)
-
 //// # you cannot rob vault ////////////////////////////////////////////////////
 
 
@@ -463,7 +415,8 @@ rule assetsSupplyChangeTogether {
 ////////////////////////////////////////////////////////////////////////////////
 
 invariant assetIsNotVaultToken() // violated init state
-    asset() != currentContract
+    asset() != currentContract // Armen interesting idea. Bug? Def weird
+
 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -548,19 +501,7 @@ rule sanity {
 
 /*
 
-//// # conversion integrity ////////////////////////////////////////////////////
 
-/// An assets to shares to assets calculation must return the largest possible assets <= original assets.
-rule assetsSharesAssetsConversionIntegrity {
-    assert false,
-        "TODO";
-} // check direction
-
-/// A shares to assets to shares calculation must return the largest possible shares <= original shares.
-rule sharesAssetsSharesConversionIntegrity {
-    assert false,
-        "TODO";
-} // check direction
 
 //// # convertTo_____ previewFunction //////////////////////////////////////////
 
@@ -725,3 +666,38 @@ rule withdrawingProducesAssets() { // single method of reclaiming
 //     requireInvariant totalSupplyIsSumOfBalances();
 //     requireInvariant sumOfBalancePairsBounded(x, y);
 // }
+
+/*
+invariant vaultSolvencyAssets()
+    totalAssets() >= convertToAssets(totalSupply())
+    {
+        preserved {
+            requireInvariant vaultSolvencyShares();
+        }
+    }
+
+invariant vaultSolvencyShares()
+    convertToShares(totalAssets()) >= totalSupply()
+    {
+        preserved {
+            requireInvariant vaultSolvencyAssets();
+        }
+    }
+*/
+
+// invariant totalAssetsIsSumOfAssets() // not useful?
+//     totalAssets() == convertToAssets(sumOfBalances)
+
+
+
+
+/*
+                [down]
+deposit A   ->  S(A)
+mint  A(S)  ->    S
+      [up]
+
+IF  A == A(S) => S(A) <= S
+IF S(A) == S => A <= A(S)
+
+*/
