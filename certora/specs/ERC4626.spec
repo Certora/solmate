@@ -1,5 +1,3 @@
-// import "../helpers/erc20.spec"
-
 methods {
     name() returns string envfree;
     symbol() returns string envfree;
@@ -49,6 +47,119 @@ methods {
 // current assets of system
 // invariants when, how
 
+// vault is solvent
+// $5 shares then $5 assets
+// price is dependent on ratio of shares:assets
+// if you can (wrongly) make the ratio change, you can use the same method to bring one to zero when the other isn't --> infinite price
+// prove we can't change one conversion and not the other
+
+// prove totalAssets and totalSupply must be both 0 or both !0
+// prove user can never get nothing for giving something (bank robs user)
+// prove user can never get something for giving nothing (user robs bank)
+// prove the correct relationship between the two conversion methods (stretch)
+
+//// # invariants ////////////////////////////////////////////////////////////////////
+
+/* none of these are correct
+invariant totalAssetsLeqVaultAssetBalance() // rework / correct
+    totalAssets() <= userAssets(currentContract)
+
+
+
+
+invariant vaultSolvency() // rework / correct
+    totalAssets() >= convertToAssets(totalSupply()) && 
+    convertToShares(totalAssets()) >= totalSupply()
+
+
+invariant vaultSolvencyAssets()
+    totalAssets() >= convertToAssets(totalSupply())
+    {
+        preserved {
+            requireInvariant vaultSolvencyShares();
+        }
+    }
+
+
+invariant vaultSolvencyShares()
+    convertToShares(totalAssets()) >= totalSupply()
+    {
+        preserved {
+            requireInvariant vaultSolvencyAssets();
+        }
+    }
+*/
+
+ghost uint256 sumOfBalances {
+    init_state axiom sumOfBalances == 0;
+}
+
+hook Sstore balanceOf[KEY address addy] uint256 newValue (uint256 oldValue) STORAGE {
+    sumOfBalances = sumOfBalances + newValue - oldValue;
+}
+
+invariant totalSupplyIsSumOfBalances()
+    totalSupply() == sumOfBalances
+
+
+invariant sumOfBalancePairsBounded(address addy1, address addy2)
+    addy1 != addy2 => balanceOf(addy1) + balanceOf(addy2) <= totalSupply()
+    {
+        preserved {
+            // because totalSupplyIsSumOfBalances is proven, the sum of any distinct two must be less than totalSupply
+            require false; // this feels more honest than pretending
+            // state assumption and say why safe assumption
+            // write and function (safe assumptions function) with requireInvariants
+        }
+    }
+
+invariant sumOfBalancePairsBoundedForAll() // this one is expensive, use the other if possible
+    forall address addy1. forall address addy2. 
+    addy1 != addy2 => balanceOf(addy1) + balanceOf(addy2) <= sumOfBalances // totalSupply() strange error `Cannot cast type mathint of totalSupply() to EVM type`
+
+
+invariant singleBalanceBounded(address addy)
+    balanceOf(addy) <= totalSupply()
+    {
+        preserved {
+            // because totalSupplyIsSumOfBalances is proven, any single balance must be less than totalSupply
+            require false; // this feels more honest than pretending
+        }
+    }
+
+rule vaultCoversReclaiming() {
+    assert userBalanceAfter == 0 => 
+}
+
+//// # zero ////////////////////////////////////////////////////////////////////
+
+invariant noSupplyIffNoAssets() // Check to see if correct
+    totalSupply() == 0 <=> userAssets(currentContract) == 0
+    {
+        preserved with (env e) {
+            requireInvariant totalSupplyIsSumOfBalances;
+            requireInvariant sumOfBalancePairsBoundedForAll;
+            require currentContract != e.msg.sender;
+        }
+        preserved transferFrom(address owner, address receiver, uint256 shares) with (env e2) {
+            require currentContract != owner && currentContract != receiver;
+            requireInvariant totalSupplyIsSumOfBalances();
+            requireInvariant sumOfBalancePairsBounded(owner, receiver);
+        }
+        preserved withdraw(uint256 assets, address receiver, address owner) with (env e3) {
+            require currentContract != receiver && currentContract != owner;
+            requireInvariant totalSupplyIsSumOfBalances();
+            requireInvariant sumOfBalancePairsBounded(receiver, owner);
+        }
+        preserved redeem(uint256 shares, address receiver, address owner) with (env e4) {
+            require currentContract != receiver && currentContract != owner;
+            requireInvariant totalSupplyIsSumOfBalances();
+            requireInvariant sumOfBalancePairsBounded(receiver, owner);
+            requireInvariant singleBalanceBounded(receiver); // could be owner since it only matters when receiver is owner
+        }
+    }
+
+
 //// # strong and weak monotonicity ////////////////////////////////////////////
 
 // this rule is an example dealing with only deposit
@@ -77,14 +188,13 @@ rule depositStrongWeakMonotonicity() { // before simplifying to exclude token ra
     if (totalSupply() > totalAssets()) {
         // weakly monotonic behavior when supply tokens outnumber asset tokens
         assert smallerAssets < largerAssets => smallerShares <= largerShares,
-            "when supply tokens outnumber asset tokens, a larger deposit of assets will produce an equal or greater number of shares";
+            "when supply tokens outnumber asset tokens, a larger deposit of assets must produce an equal or greater number of shares";
     } else {
         // strongly monotonic behavior when supply tokens do not outnumber asset tokens
         assert smallerAssets < largerAssets => smallerShares < largerShares, // passes when smallerShares <= largerShares, could simplify to exclude token ratios
-            "when supply tokens do not outnumber asset tokens, a larger deposit of assets will produce a greater number of shares";
+            "when supply tokens do not outnumber asset tokens, a larger deposit of assets must produce a greater number of shares";
     }
 }
-
 
 
 rule totalsWeakMonotonicity() {
@@ -103,12 +213,15 @@ rule totalsWeakMonotonicity() {
     uint256 totalSupplyChangeB = updateChangeMarker(e, totalSupplyBefore, totalSupply());
     uint256 totalAssetsChangeB = updateChangeMarker(e, totalAssetsBefore, totalAssets());
 
-    assert totalSupplyChangeA < totalSupplyChangeB => totalAssetsChangeA <= totalAssetsChangeB;
-    assert totalSupplyChangeA == totalSupplyChangeB => totalAssetsChangeA == totalAssetsChangeB;
+    // TODO possibly assert totalSupply and totalAssets must not change in opposite directions
+    assert totalSupplyChangeA < totalSupplyChangeB => totalAssetsChangeA <= totalAssetsChangeB,
+        "if totalSupply changes by a larger amount, the corresponding change in totalAssets must remain the same or grow";
+    assert totalSupplyChangeA == totalSupplyChangeB => totalAssetsChangeA == totalAssetsChangeB,
+        "equal size changes to totalSupply must yield equal size changes to totalAssets";
     // assert totalSupplyChangeA > totalSupplyChangeB => totalAssetsChangeA >= totalAssetsChangeB; // not necessary because of A-B equivalence
 }
 
-function updateChangeMarker(env e, uint256 oldLevel, uint256 newLevel) returns uint256 {
+function updateChangeMarker(env e, uint256 oldLevel, uint256 newLevel) returns uint256 { // when time, generalize this function to use elsewhere
     if (oldLevel <= newLevel) {
         return to_uint256(newLevel - oldLevel);
     } else {
@@ -118,26 +231,43 @@ function updateChangeMarker(env e, uint256 oldLevel, uint256 newLevel) returns u
 
 //// # strong and weak additivity //////////////////////////////////////////////
 
-invariant convertToAssetsWeakAdditivity(uint256 sharesA, uint256 sharesB) // this isn't true w ==
+//// # conversion functions //////////////////////////////////////////////
+
+rule conversionOfZero {
+    uint256 convertZeroShares = convertToAssets(0);
+    uint256 convertZeroAssets = convertToShares(0);
+
+    assert convertZeroShares == 0,
+        "converting zero shares must return zero assets";
+    assert convertZeroAssets == 0,
+        "converting zero assets must return zero shares";
+}
+
+invariant convertToAssetsWeakAdditivity(uint256 sharesA, uint256 sharesB) // update to account for 'floor' of possible values
     sharesA + sharesB < max_uint128 &&
     convertToAssets(sharesA) + convertToAssets(sharesB) < max_uint256 &&
     convertToAssets(sharesA + sharesB) < max_uint256 =>
-    convertToAssets(sharesA) + convertToAssets(sharesB) <= convertToAssets(sharesA + sharesB) // == --> <= bc convertToAssets always rounds down
+    convertToAssets(sharesA) + convertToAssets(sharesB) <= convertToAssets(sharesA + sharesB)
 
-invariant convertToSharesWeakAdditivity(uint256 assetsA, uint256 assetsB) // true?
+invariant convertToSharesWeakAdditivity(uint256 assetsA, uint256 assetsB) // update to account for 'floor' of possible values
     assetsA + assetsB < max_uint128 &&
     convertToShares(assetsA) + convertToShares(assetsB) < max_uint256 &&
     convertToShares(assetsA + assetsB) < max_uint256 =>
-    convertToShares(assetsA) + convertToShares(assetsB) <= convertToShares(assetsA + assetsB) // == --> <= bc convertToShares always rounds down
+    convertToShares(assetsA) + convertToShares(assetsB) <= convertToShares(assetsA + assetsB)
 
-invariant conversionWeakIntegrity(uint256 sharesOrAssets)
+rule conversionWeakMonotonicity {
+    uint256 smallerShares; uint256 largerShares;
+    uint256 smallerAssets; uint256 largerAssets;
+
+    assert smallerShares < largerShares => convertToAssets(smallerShares) <= convertToAssets(largerShares),
+        "converting more shares must yield equal or greater assets";
+    assert smallerAssets < largerAssets => convertToShares(smallerAssets) <= convertToShares(largerAssets),
+        "converting more assets must yield equal or greater shares";
+}
+
+invariant conversionWeakIntegrity(uint256 sharesOrAssets) // update to include floor for returned value for rounding
     convertToShares(convertToAssets(sharesOrAssets)) <= sharesOrAssets &&
     convertToAssets(convertToShares(sharesOrAssets)) <= sharesOrAssets
-
-//// # zero ////////////////////////////////////////////////////////////////////
-
-invariant noSupplyIffNoAssets() // broken
-    totalSupply() == 0 <=> userAssets(currentContract) == 0
 
 //// # function epsilon ////////////////////////////////////////////////////////
 
@@ -218,7 +348,7 @@ filtered {
          && currentContract != asset();
 
     requireInvariant sumOfBalancePairsBounded(contributor, receiver);
-    requireInvariant vaultSolvency();
+    requireInvariant vaultSolvency(); // TODO replace
     require previewDeposit(assets) + balanceOf(receiver) <= max_uint256; // safe assumption because call to _mint will revert if totalSupply += amount overflows
     require shares + balanceOf(receiver) <= max_uint256; // same as above
 
@@ -276,7 +406,7 @@ filtered {
          && currentContract != asset();
 
     requireInvariant sumOfBalancePairsBounded(owner, receiver); // check if needed
-    requireInvariant vaultSolvency(); // not needed for withdrawing, check for redeeming
+    requireInvariant vaultSolvency(); // not needed for withdrawing, check for redeeming TODO remove/rework
 
     uint256 ownerSharesBefore = balanceOf(owner);
     uint256 receiverAssetsBefore = userAssets(receiver);
@@ -304,47 +434,30 @@ rule vaultMustAllowReclaiming() {
         "TODO calls to withdraw and redeem must not revert improperly";
 }
 
-invariant totalAssetsLeqVaultAssetBalance()
-    totalAssets() <= userAssets(currentContract)
-
-invariant totalAssetsAsSharesLeqVaultAssetBalanceAsShares() // rewrite as rule, as x <= y => f(x) <= f(y)
-    convertToShares(totalAssets()) <= convertToShares(userAssets(currentContract))
-
-invariant vaultSolvency()
-    totalAssets() >= convertToAssets(totalSupply()) && 
-    convertToShares(totalAssets()) >= totalSupply()
-
-ghost uint256 sumOfBalances {
-    init_state axiom sumOfBalances == 0;
+// already partially present w reclaiming and contributing rules
+rule gainingLosingSharesInvChangesUserAssets(method f)
+filtered {
+    f -> f.selector != transfer(address,uint256).selector
+      && f.selector != transferFrom(address,address,uint256).selector
 }
+{
+    env e;
+    require currentContract != e.msg.sender;
+    address user;
+    uint256 userSharesBefore = balanceOf(user);
+    uint256 userAssetsBefore = userAssets(user);
 
-hook Sstore balanceOf[KEY address addy] uint256 newValue (uint256 oldValue) STORAGE {
-    sumOfBalances = sumOfBalances + newValue - oldValue;
+    calldataarg args;
+    f(e, args);
+
+    uint256 userSharesAfter = balanceOf(user);
+    uint256 userAssetsAfter = userAssets(user);
+
+    assert userSharesBefore < userSharesAfter <=> userAssetsBefore > userAssetsAfter,
+        "if a user's shares increase outside of transfers, the user's assets must decrease";
+    assert userSharesBefore > userSharesAfter <=> userAssetsBefore < userAssetsAfter,
+        "if a user's shares decrease outside of transfers, the user's assets must increase";
 }
-
-invariant totalSupplyIsSumOfBalances()
-    totalSupply() == sumOfBalances
-
-
-invariant sumOfBalancePairsBounded(address addy1, address addy2)
-    addy1 != addy2 => balanceOf(addy1) + balanceOf(addy2) <= totalSupply()
-    {
-        preserved {
-            // because totalSupplyIsSumOfBalances is proven, the sum of any distinct two must be less than totalSupply
-            require false; // this feels more honest than pretending
-            // state assumption and say why safe assumption
-            // write and function (safe assumptions function) with requireInvariants
-        }
-    }
-
-invariant singleBalanceBounded(address addy)
-    balanceOf(addy) <= totalSupply()
-    {
-        preserved {
-            // because totalSupplyIsSumOfBalances is proven, any single balance must be less than totalSupply
-            require false; // this feels more honest than pretending
-        }
-    }
 
 rule totalSupplyReflectsMintingBurningShares {
 
@@ -390,10 +503,6 @@ invariant assetIsNotVaultToken() // violated init state
 //// # state change properties /////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
-// invariant noSupplyIffNoAssets() // broken
-//     totalSupply() == 0 <=> userAssets(currentContract) == 0
-
-
 rule underlyingCannotChange() {
     address originalAsset = asset();
 
@@ -419,8 +528,17 @@ rule underlyingCannotChange() {
 //// # where do these properties fit best? /////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
-rule contractCannotCallIoMethods {
-    assert false,
+rule contractCannotCallIoMethods(method f)
+filtered {
+    f -> f.selector == deposit(uint256,address).selector
+      || f.selector == mint(uint256,address).selector
+      || f.selector == withdraw(uint256,address,address).selector
+      || f.selector == redeem(uint256,address,address).selector
+}
+{
+    env e; calldataarg args;
+    f(e, args);
+    assert currentContract != e.msg.sender,
         "the vault must not be able to call its own contribution and reclaiming functions";
 }
 
@@ -621,23 +739,7 @@ rule withdrawingProducesAssets() { // single method of reclaiming
 //     requireInvariant sumOfBalancePairsBounded(x, y);
 // }
 
-/*
-invariant vaultSolvencyAssets()
-    totalAssets() >= convertToAssets(totalSupply())
-    {
-        preserved {
-            requireInvariant vaultSolvencyShares();
-        }
-    }
 
-invariant vaultSolvencyShares()
-    convertToShares(totalAssets()) >= totalSupply()
-    {
-        preserved {
-            requireInvariant vaultSolvencyAssets();
-        }
-    }
-*/
 
 // invariant totalAssetsIsSumOfAssets() // not useful?
 //     totalAssets() == convertToAssets(sumOfBalances)
