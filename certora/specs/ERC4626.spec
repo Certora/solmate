@@ -60,7 +60,7 @@ methods {
 
 //// # invariants ////////////////////////////////////////////////////////////////////
 
-/* none of these are correct
+// none of these are correct
 invariant totalAssetsLeqVaultAssetBalance() // rework / correct
     totalAssets() <= userAssets(currentContract)
 
@@ -71,7 +71,7 @@ invariant vaultSolvency() // rework / correct
     totalAssets() >= convertToAssets(totalSupply()) && 
     convertToShares(totalAssets()) >= totalSupply()
 
-
+/*
 invariant vaultSolvencyAssets()
     totalAssets() >= convertToAssets(totalSupply())
     {
@@ -128,7 +128,14 @@ invariant singleBalanceBounded(address addy)
     }
 
 rule vaultCoversReclaiming() {
-    assert userBalanceAfter == 0 => 
+    address owner;
+    uint256 shares; require shares == balanceOf(owner);
+    requireInvariant totalSupplyIsSumOfBalances();
+    requireInvariant singleBalanceBounded(owner);
+    env e;
+    redeem(e, shares, _, owner);
+    uint256 ownerBalanceAfter = balanceOf(owner);
+    assert ownerBalanceAfter == 0;
 }
 
 //// # zero ////////////////////////////////////////////////////////////////////
@@ -137,28 +144,48 @@ invariant noSupplyIffNoAssets() // Check to see if correct
     totalSupply() == 0 <=> userAssets(currentContract) == 0
     {
         preserved with (env e) {
-            requireInvariant totalSupplyIsSumOfBalances;
-            requireInvariant sumOfBalancePairsBoundedForAll;
-            require currentContract != e.msg.sender;
+            address receiver1;
+            safeAssumptions(e, receiver1, e.msg.sender);
+            // requireInvariant totalSupplyIsSumOfBalances();
+            // // requireInvariant sumOfBalancePairsBoundedForAll();
+            // require currentContract != e.msg.sender;
+            // require currentContract != asset();
         }
-        preserved transferFrom(address owner, address receiver, uint256 shares) with (env e2) {
-            require currentContract != owner && currentContract != receiver;
-            requireInvariant totalSupplyIsSumOfBalances();
-            requireInvariant sumOfBalancePairsBounded(owner, receiver);
+        preserved transfer(address receiver, uint256 shares) with (env e2) {
+            safeAssumptions(e2, receiver, e2.msg.sender);
+            // require currentContract != e.msg.sender && currentContract != receiver;
+            // requireInvariant totalSupplyIsSumOfBalances();
+            // requireInvariant sumOfBalancePairsBounded(e.msg.sender, receiver);
         }
-        preserved withdraw(uint256 assets, address receiver, address owner) with (env e3) {
-            require currentContract != receiver && currentContract != owner;
-            requireInvariant totalSupplyIsSumOfBalances();
-            requireInvariant sumOfBalancePairsBounded(receiver, owner);
+        preserved transferFrom(address owner, address receiver, uint256 shares) with (env e3) {
+            safeAssumptions(e3, receiver, owner);
+            // require currentContract != owner && currentContract != receiver;
+            // requireInvariant totalSupplyIsSumOfBalances();
+            // requireInvariant sumOfBalancePairsBounded(owner, receiver);
         }
-        preserved redeem(uint256 shares, address receiver, address owner) with (env e4) {
-            require currentContract != receiver && currentContract != owner;
-            requireInvariant totalSupplyIsSumOfBalances();
-            requireInvariant sumOfBalancePairsBounded(receiver, owner);
-            requireInvariant singleBalanceBounded(receiver); // could be owner since it only matters when receiver is owner
+        preserved withdraw(uint256 assets, address receiver, address owner) with (env e4) {
+            safeAssumptions(e4, receiver, owner);
+            // require currentContract != receiver && currentContract != owner;
+            // requireInvariant totalSupplyIsSumOfBalances();
+            // requireInvariant sumOfBalancePairsBounded(receiver, owner);
+        }
+        preserved redeem(uint256 shares, address receiver, address owner) with (env e5) {
+            safeAssumptions(e5, receiver, owner);
+            // require currentContract != receiver && currentContract != owner;
+            // requireInvariant totalSupplyIsSumOfBalances();
+            // requireInvariant sumOfBalancePairsBounded(receiver, owner);
+            // requireInvariant singleBalanceBounded(receiver); // could be owner since it only matters when receiver is owner
         }
     }
 
+function safeAssumptions(env e, address receiver, address owner) {
+    require //currentContract != receiver &&
+            //currentContract != owner &&
+            currentContract != asset(); // We assume the contract's underlying asset is not the contract itself
+    requireInvariant totalSupplyIsSumOfBalances();
+    requireInvariant sumOfBalancePairsBounded(receiver, owner);
+    requireInvariant singleBalanceBounded(receiver);
+}
 
 //// # strong and weak monotonicity ////////////////////////////////////////////
 
@@ -494,8 +521,9 @@ rule assetsSupplyChangeTogether {
 //// # variable relationship properties ////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
-invariant assetIsNotVaultToken() // violated init state
-    asset() != currentContract // Armen interesting idea. Bug? Def weird
+// invariant assetIsNotVaultToken() // violated init state
+//     asset() != currentContract // Armen interesting idea. Bug? Def weird
+//     // in report specify...
 
 
 
@@ -540,6 +568,29 @@ filtered {
     f(e, args);
     assert currentContract != e.msg.sender,
         "the vault must not be able to call its own contribution and reclaiming functions";
+} // doesn't probably do what I want it to: remove it
+
+rule userAssetsSharesInverseInputOutput(method f) // filtered and incorrect version
+filtered {
+    f -> f.selector == deposit(uint256,address).selector
+      || f.selector == mint(uint256,address).selector
+      || f.selector == withdraw(uint256,address,address).selector
+      || f.selector == redeem(uint256,address,address).selector
+}
+{
+    address user; env e;
+    require user != currentContract; require user == e.msg.sender;
+    uint256 userAssetsBefore = userAssets(user); uint256 userSharesBefore = balanceOf(user);
+
+    calldataarg args;
+    f(e, args);
+
+    uint256 userAssetsAfter = userAssets(user); uint256 userSharesAfter = balanceOf(user);
+
+    assert userAssetsBefore > userAssetsAfter <=> userSharesBefore < userSharesAfter,
+        "a user's underlying asset balance must decrease on vault IO if and only if their vault token balance increases";
+    assert userAssetsBefore < userAssetsAfter <=> userSharesBefore > userSharesAfter,
+        "a user's underlying asset balance must increase on vault IO if and only if their vault token balance decreases";
 }
 
 // rounding direction in transactions should always favor vault
@@ -653,28 +704,7 @@ rule redeemMaxRedeemRelationship {
 
 
 
-// rule userAssetsSharesInverseInputOutput(method f) // filtered and incorrect version
-// filtered {
-//     f -> f.selector == deposit(uint256,address).selector
-//       || f.selector == mint(uint256,address).selector
-//       || f.selector == withdraw(uint256,address,address).selector
-//       || f.selector == redeem(uint256,address,address).selector
-// }
-// {
-//     address user; env e;
-//     require user != currentContract; require user == e.msg.sender;
-//     uint256 userAssetsBefore = userAssets(user); uint256 userSharesBefore = balanceOf(user);
 
-//     calldataarg args;
-//     f(e, args);
-
-//     uint256 userAssetsAfter = userAssets(user); uint256 userSharesAfter = balanceOf(user);
-
-//     assert userAssetsBefore > userAssetsAfter <=> userSharesBefore < userSharesAfter,
-//         "a user's underlying asset balance must decrease on vault IO if and only if their vault token balance increases";
-//     assert userAssetsBefore < userAssetsAfter <=> userSharesBefore > userSharesAfter,
-//         "a user's underlying asset balance must increase on vault IO if and only if their vault token balance decreases";
-// }
 
 /*
 
@@ -733,54 +763,11 @@ rule withdrawingProducesAssets() { // single method of reclaiming
 
 */
 
-// preserved transferFrom(address x, address y, uint256 amount) with (env e) { // example for reference
-//     require e.msg.sender != currentContract;
-//     requireInvariant totalSupplyIsSumOfBalances();
-//     requireInvariant sumOfBalancePairsBounded(x, y);
-// }
 
 
 
 // invariant totalAssetsIsSumOfAssets() // not useful?
 //     totalAssets() == convertToAssets(sumOfBalances)
-
-
-/*
-rule generalWeakMonotonicity() {
-    method f; env e; calldataarg args;
-    storage before = lastStorage;
-    uint256 totalSupplyBefore = totalSupply();
-    uint256 totalAssetsBefore = totalAssets();
-    uint256 totalSupplyChangeA; uint256 totalSupplyChangeB;
-    uint256 totalAssetsChangeA; uint256 totalAssetsChangeB;
-    f(e, args) at before; // check to see if signs can be opposite
-    if (totalSupplyBefore <= totalSupply()) {
-        totalSupplyChangeA = totalSupply() - totalSupplyBefore;
-    } else {
-        totalSupplyChangeA = totalSupplyBefore - totalSupply();
-    }
-    if (totalAssetsBefore <= totalAssets()) {
-        totalAssetsChangeA = totalAssets() - totalAssetsBefore;
-    } else {
-        totalAssetsChangeA = totalAssetsBefore - totalAssets();
-    }
-    f(e, args) at before;
-        if (totalSupplyBefore <= totalSupply()) {
-        totalSupplyChangeB = totalSupply() - totalSupplyBefore;
-    } else {
-        totalSupplyChangeB = totalSupplyBefore - totalSupply();
-    }
-    if (totalAssetsBefore <= totalAssets()) {
-        totalAssetsChangeB = totalAssets() - totalAssetsBefore;
-    } else {
-        totalAssetsChangeB = totalAssetsBefore - totalAssets();
-    }
-
-    assert totalSupplyChangeA < totalSupplyChangeB => totalAssetsChangeA <= totalAssetsChangeB;
-    assert totalSupplyChangeA == totalSupplyChangeB => totalAssetsChangeA == totalAssetsChangeB;
-    // assert totalSupplyChangeA > totalSupplyChangeB => totalAssetsChangeA >= totalAssetsChangeB; // not necessary because of A-B equivalence
-}
-*/
 
 
 
@@ -792,5 +779,4 @@ mint  A(S)  ->    S
 
 IF  A   == A(S) => S(A) <=  S
 IF S(A) ==  S   =>  A   <= A(S)
-
 */
