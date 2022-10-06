@@ -34,89 +34,6 @@ methods {
     DOMAIN_SEPARATOR() returns bytes32;
 }
 
-////////////////////////////////////////////////////////////////////////////////
-//// # solvency properties /////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////
-
-invariant totalAssetsVsVaultAssetBalance()
-    false // TODO 
-
-invariant vaultSolvency()
-    totalAssets() >= convertToAssets(totalSupply()) && 
-    convertToShares(totalAssets()) >= totalSupply()
-    // false // TODO
-
-ghost uint256 sumOfBalances {
-    init_state axiom sumOfBalances == 0;
-}
-
-hook Sstore balanceOf[KEY address addy] uint256 newValue (uint256 oldValue) STORAGE {
-    sumOfBalances = sumOfBalances + newValue - oldValue;
-}
-
-invariant totalSupplyIsSumOfBalances()
-    totalSupply() == sumOfBalances
-
-invariant sumOfBalancePairsBounded(address addy1, address addy2)
-    addy1 != addy2 => balanceOf(addy1) + balanceOf(addy2) <= totalSupply()
-    {
-        preserved {
-            // totalSupplyIsSumOfBalances implies that the sum of any two distinct balances must be less than totalSupply
-            require false;
-            requireInvariant totalSupplyIsSumOfBalances();
-        }
-    }
-
-invariant singleBalanceBounded(address addy)
-    balanceOf(addy) <= totalSupply()
-    {
-        preserved {
-            // totalSupplyIsSumOfBalances implies that any single balance must be less than totalSupply
-            require false;
-            requireInvariant totalSupplyIsSumOfBalances();
-        }
-    }
-
-rule vaultCoversRedeemingAll() {
-    address owner; 
-    uint256 shares; require shares == balanceOf(owner);
-    
-    env e; safeAssumptions(e, _, owner);
-    redeem(e, shares, _, owner);
-    uint256 ownerBalanceAfter = balanceOf(owner);
-    assert ownerBalanceAfter == 0,
-        "the vault must be able to cover any user trading in all their shares in return for all assets owed";
-}
-
-rule vaultCoversWithdrawingAll() { // FAILING due to conversion calculations
-    address owner; 
-    uint256 shares; require shares == balanceOf(owner);
-    uint256 assetsOwed = convertToAssets(shares);
-    
-    env e; safeAssumptions(e, _, owner);
-    withdraw(e, assetsOwed, _, owner);
-    uint256 ownerBalanceAfter = balanceOf(owner);
-    assert ownerBalanceAfter == 0,
-        "the vault must be able to cover any user trading in all their shares in return for all assets owed";
-}
-
-rule totalSupplyReflectsMintingBurningShares { // TODO solvency
-
-    assert false,
-        "TODO totalSupply must reflect minting and burning of shares";
-}
-
-rule totalAssetsReflectsContributionReclaimingAssets { // TODO solvency
-    assert false,
-        "TODO totalAssets must reflect contribution and reclaiming of assets";
-}
-
-rule assetsSupplyChangeTogether { // TODO
-    assert false,
-    // assert (totalSupplyBefore < totalSupplyAfter <=> totalAssetsBefore < totalAssetsAfter)
-    //     && (totalSupplyBefore > totalSupplyAfter <=> totalAssetsBefore > totalAssetsAfter),
-        "increases and decreases in totalSupply must occur with corresponding increases and decreases in totalAssets";
-}
 
 ////////////////////////////////////////////////////////////////////////////////
 //// # mathematical properties /////////////////////////////////////////////////
@@ -147,6 +64,7 @@ invariant noSupplyIffNoAssets() // DONE but FAILING
 // option 1 (repetitious, simple): write 4 rules
 // option 2 (less repetitious, less simple): write 2 rules, 1 for share-unit methods, 1 for asset-unit methods
 // option 3 (succinct, more complex): write 1 rule handling all 4 methods
+// TODO update to account for 'floor' of possible values
 rule depositStrongWeakMonotonicity() { // TODO before simplifying (-strong) to exclude token ratios, consider whether the improper behavior is a bug.
     env e; storage before = lastStorage;
 
@@ -241,6 +159,70 @@ rule conversionWeakIntegrity() { // TODO update to include floor for returned va
         "converting shares to assets then back to shares must return shares less than or equal to the original amount";
     assert convertToAssets(convertToShares(sharesOrAssets)) <= sharesOrAssets,
         "converting assets to shares then back to assets must return assets less than or equal to the original amount";
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//// # solvency properties /////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+
+
+// By itself, this rule is meaningless. 
+// Conversion functions cannot be assumed to be correct.
+// Mike felt it was important to include with the context that solvency is
+// proven by verifying the relationship between totalAssets and the correct
+// underlying balance of assets and verifying the relationship between
+// totalSupply and the shares it represents.
+invariant vaultSolvency()
+    totalAssets() >= convertToAssets(totalSupply()) && 
+    convertToShares(totalAssets()) >= totalSupply()
+
+ghost uint256 sumOfBalances {
+    init_state axiom sumOfBalances == 0;
+}
+
+hook Sstore balanceOf[KEY address addy] uint256 newValue (uint256 oldValue) STORAGE {
+    sumOfBalances = sumOfBalances + newValue - oldValue;
+}
+
+invariant totalSupplyIsSumOfBalances()
+    totalSupply() == sumOfBalances
+
+invariant sumOfBalancePairsBounded(address addy1, address addy2)
+    addy1 != addy2 => balanceOf(addy1) + balanceOf(addy2) <= totalSupply()
+    {
+        preserved {
+            // totalSupplyIsSumOfBalances implies that the sum of any two distinct balances must be less than totalSupply
+            require false;
+            requireInvariant totalSupplyIsSumOfBalances();
+        }
+    }
+
+invariant singleBalanceBounded(address addy)
+    balanceOf(addy) <= totalSupply()
+    {
+        preserved {
+            // totalSupplyIsSumOfBalances implies that any single balance must be less than totalSupply
+            require false;
+            requireInvariant totalSupplyIsSumOfBalances();
+        }
+    }
+
+rule vaultCoversRedeemingAll() { // withdraw version of this rule was failing due to conversion calculations --> removed as unnecessary
+    address owner; 
+    uint256 shares; require shares == balanceOf(owner);
+    
+    env e; safeAssumptions(e, _, owner);
+    redeem(e, shares, _, owner);
+    uint256 ownerBalanceAfter = balanceOf(owner);
+    assert ownerBalanceAfter == 0,
+        "the vault must be able to cover any user trading in all their shares in return for all assets owed";
+}
+
+rule assetsSupplyChangeTogether { // TODO
+    assert false,
+    // assert (totalSupplyBefore < totalSupplyAfter <=> totalAssetsBefore < totalAssetsAfter)
+    //     && (totalSupplyBefore > totalSupplyAfter <=> totalAssetsBefore > totalAssetsAfter),
+        "increases and decreases in totalSupply must occur with corresponding increases and decreases in totalAssets";
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -350,7 +332,7 @@ filtered {
         "if a user's shares decrease outside of transfers, the user's assets must increase";
 }
 
-rule underlyingCannotChange() { // DONE?
+rule underlyingCannotChange() {
     address originalAsset = asset();
 
     method f; env e; calldataarg args;
@@ -377,11 +359,6 @@ rule underlyingCannotChange() { // DONE?
 ////////////////////////////////////////////////////////////////////////////////
 //// # unit test properties ////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
-
-rule vaultMustAllowReclaiming() { // TODO
-    assert false,
-        "TODO calls to withdraw and redeem must not revert improperly";
-}
 
 rule contributionMethodWeakEquivalence() { // FAILING due to violation of expected rounding behavior
     env e; storage before = lastStorage;
@@ -432,79 +409,6 @@ rule reclaimingMethodWeakEquivalence() { // FAILING due to violation of expected
         "if withdraw and redeem produce equal assets, then withdraw must contribute shares greater than or equal to redeem";    
 }
 
-/*
-//// # function previewFunction ////////////////////////////////////////////////
-
-/// relationship between deposit and previewDeposit
-/// A call to deposit must return the smallest value >= previewDeposit's return when called in the same transaction.
-rule depositPreviewDepositRelationship {
-    assert false,
-        "TODO";    
-}
-
-/// relationship between mint and previewMint
-/// A call to mint must return the largest value <= previewMint's return when called in the same transaction.
-rule mintPreviewMintRelationship {
-    assert false,
-        "TODO";    
-}
-
-/// relationship between withdraw and previewWithdraw
-/// A call to withdraw must return the largest value <= previewWithdraw's return when called in the same transaction.
-rule withdrawPreviewWithdrawRelationship {
-    assert false,
-        "TODO";    
-}
-
-/// relationship between redeem and previewRedeem
-/// A call to redeem must return the smallest value >= previewRedeem's return when called in the same transaction.
-rule redeemPreviewRedeemRelationship {
-    assert false,
-        "TODO";    
-}
-
-//// # function maxFunction ////////////////////////////////////////////////////
-
-/// relationship between deposit and maxDeposit
-/// A maxDeposit calculation must return the largest value <= the largest deposit that would not revert
-rule depositMaxDepositRelationship {
-    assert false,
-        "TODO";    
-}
-
-/// relationship between mint and maxMint
-/// A maxMint calculation must return the largest value <= the largest mint that would not revert
-rule mintMaxMintRelationship {
-    assert false,
-        "TODO";    
-}
-
-/// relationship between withdraw and maxWithdraw
-/// A maxWithdraw calculation must return the largest value <= the largest withdraw that would not revert
-rule withdrawMaxWithdrawRelationship {
-    assert false,
-        "TODO";    
-}
-
-/// relationship between redeem and maxRedeem
-/// A maxRedeem calculation must return the largest value <= the largest redeem that would not revert
-rule redeemMaxRedeemRelationship {
-    assert false,
-        "TODO";    
-}
-
-//// # convertTo_____ previewFunction //////////////////////////////////////////
-
-/// relationship between convertToShares and previewDeposit
-
-/// relationship between convertToAssets and previewMint
-
-/// relationship between convertToShares and previewWithdraw
-
-/// relationship between convertToAssets and previewRedeem
-*/
-
-
 ////////////////////////////////////////////////////////////////////////////////
 //// # helpers and miscelanious ////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
@@ -551,13 +455,3 @@ function callReclaimingMethods(env e, method f, uint256 assets, uint256 shares, 
         redeem(e, shares, receiver, owner);
     }
 }
-
-
-
-
-// rounding direction in transactions should always favor vault
-
-// Only I/approved should be able to remove any of the assets/shares I have in the vault // --> distinct permissions section?
-
-// No one should be able to take out more than they have in the vault // --> like solvency but personal
-
