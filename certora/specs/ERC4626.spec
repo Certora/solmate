@@ -42,48 +42,62 @@ invariant totalAssetsVsVaultAssetBalance()
     false // TODO 
 
 invariant vaultSolvency()
-    false // TODO
+    totalAssets() >= convertToAssets(totalSupply()) && 
+    convertToShares(totalAssets()) >= totalSupply()
+    // false // TODO
 
-ghost uint256 sumOfBalances { // DONE
+ghost uint256 sumOfBalances {
     init_state axiom sumOfBalances == 0;
 }
 
-hook Sstore balanceOf[KEY address addy] uint256 newValue (uint256 oldValue) STORAGE { // DONE
+hook Sstore balanceOf[KEY address addy] uint256 newValue (uint256 oldValue) STORAGE {
     sumOfBalances = sumOfBalances + newValue - oldValue;
 }
 
-invariant totalSupplyIsSumOfBalances() // DONE
+invariant totalSupplyIsSumOfBalances()
     totalSupply() == sumOfBalances
 
-invariant sumOfBalancePairsBounded(address addy1, address addy2) // TODO rework preserved block for better justification
+invariant sumOfBalancePairsBounded(address addy1, address addy2)
     addy1 != addy2 => balanceOf(addy1) + balanceOf(addy2) <= totalSupply()
     {
         preserved {
             // totalSupplyIsSumOfBalances implies that the sum of any two distinct balances must be less than totalSupply
-            // require false; // this feels more honest than pretending
-            requireInvariant totalSupplyIsSumOfBalances(); // Does this convey the idea better?
+            require false;
+            requireInvariant totalSupplyIsSumOfBalances();
         }
     }
 
-invariant singleBalanceBounded(address addy) // TODO 
+invariant singleBalanceBounded(address addy)
     balanceOf(addy) <= totalSupply()
     {
         preserved {
-            // totalSupplyIsSumOfBalances implies that the sum of any single balance must be less than totalSupply
-            // require false; // this feels more honest than pretending
-            requireInvariant totalSupplyIsSumOfBalances(); // Does this convey the idea better?
+            // totalSupplyIsSumOfBalances implies that any single balance must be less than totalSupply
+            require false;
+            requireInvariant totalSupplyIsSumOfBalances();
         }
     }
 
-rule vaultCoversReclaiming() { // TODO incomplete rule
-    address owner;
+rule vaultCoversRedeemingAll() {
+    address owner; 
     uint256 shares; require shares == balanceOf(owner);
-    requireInvariant totalSupplyIsSumOfBalances(); // TODO safeAssumptions refactor
-    requireInvariant singleBalanceBounded(owner);
-    env e;
+    
+    env e; safeAssumptions(e, _, owner);
     redeem(e, shares, _, owner);
     uint256 ownerBalanceAfter = balanceOf(owner);
-    assert ownerBalanceAfter == 0;
+    assert ownerBalanceAfter == 0,
+        "the vault must be able to cover any user trading in all their shares in return for all assets owed";
+}
+
+rule vaultCoversWithdrawingAll() { // FAILING due to conversion calculations
+    address owner; 
+    uint256 shares; require shares == balanceOf(owner);
+    uint256 assetsOwed = convertToAssets(shares);
+    
+    env e; safeAssumptions(e, _, owner);
+    withdraw(e, assetsOwed, _, owner);
+    uint256 ownerBalanceAfter = balanceOf(owner);
+    assert ownerBalanceAfter == 0,
+        "the vault must be able to cover any user trading in all their shares in return for all assets owed";
 }
 
 rule totalSupplyReflectsMintingBurningShares { // TODO solvency
@@ -102,13 +116,13 @@ rule assetsSupplyChangeTogether { // TODO
     // assert (totalSupplyBefore < totalSupplyAfter <=> totalAssetsBefore < totalAssetsAfter)
     //     && (totalSupplyBefore > totalSupplyAfter <=> totalAssetsBefore > totalAssetsAfter),
         "increases and decreases in totalSupply must occur with corresponding increases and decreases in totalAssets";
-}// math rule
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 //// # mathematical properties /////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
-invariant noSupplyIffNoAssets() // DONE(?) but FAILING
+invariant noSupplyIffNoAssets() // DONE but FAILING
     totalSupply() == 0 <=> userAssets(currentContract) == 0
     {
         preserved with (env e) {
@@ -133,18 +147,15 @@ invariant noSupplyIffNoAssets() // DONE(?) but FAILING
 // option 1 (repetitious, simple): write 4 rules
 // option 2 (less repetitious, less simple): write 2 rules, 1 for share-unit methods, 1 for asset-unit methods
 // option 3 (succinct, more complex): write 1 rule handling all 4 methods
-rule depositStrongWeakMonotonicity() { // TODO before simplifying to exclude token ratios, consider whether the improper behavior is a bug.
+rule depositStrongWeakMonotonicity() { // TODO before simplifying (-strong) to exclude token ratios, consider whether the improper behavior is a bug.
     env e; storage before = lastStorage;
 
     address receiver; uint256 receiverPriorBalance = balanceOf(receiver);
     uint256 smallerAssets; uint256 largerAssets;
     
-    require currentContract != e.msg.sender
-         && currentContract != receiver
-         && currentContract != asset();
+    require currentContract != e.msg.sender && currentContract != receiver; // TODO justify these requirements
 
-    requireInvariant sumOfBalancePairsBounded(e.msg.sender, receiver); // TODO needs safeAssumptions refactor
-    requireInvariant vaultSolvency();
+    safeAssumptions(e, e.msg.sender, receiver);
 
     deposit(e, smallerAssets, receiver) at before;
     uint256 smallerShares = balanceOf(receiver) - receiverPriorBalance;
@@ -158,7 +169,7 @@ rule depositStrongWeakMonotonicity() { // TODO before simplifying to exclude tok
             "when supply tokens outnumber asset tokens, a larger deposit of assets must produce an equal or greater number of shares";
     } else {
         // strongly monotonic behavior when supply tokens do not outnumber asset tokens
-        assert smallerAssets < largerAssets => smallerShares < largerShares, // TODO FAILING passes when smallerShares <= largerShares, could simplify to exclude token ratios
+        assert smallerAssets < largerAssets => smallerShares < largerShares, // FAILING passes when smallerShares <= largerShares, could simplify to exclude token ratios
             "when supply tokens do not outnumber asset tokens, a larger deposit of assets must produce a greater number of shares";
     }
 }
@@ -169,7 +180,7 @@ rule totalsWeakMonotonicity() {
     uint256 totalSupplyBefore = totalSupply();
     uint256 totalAssetsBefore = totalAssets();
 
-    f(e, args) at before; // TODO with below check to see if signs can be opposite --> likely !(a xor b) but should account for oldLevel == newLevel
+    f(e, args) at before; // TODO with below verify signs cannot be opposite --> !(a xor b) but should account for oldLevel == newLevel
 
     uint256 totalSupplyChangeA = updateChangeMarker(e, totalSupplyBefore, totalSupply());
     uint256 totalAssetsChangeA = updateChangeMarker(e, totalAssetsBefore, totalAssets());
@@ -186,7 +197,7 @@ rule totalsWeakMonotonicity() {
         "equal size changes to totalSupply must yield equal size changes to totalAssets";
 }
 
-rule conversionOfZero { //  DONE
+rule conversionOfZero {
     uint256 convertZeroShares = convertToAssets(0);
     uint256 convertZeroAssets = convertToShares(0);
 
@@ -196,21 +207,23 @@ rule conversionOfZero { //  DONE
         "converting zero assets must return zero shares";
 }
 
-// TODO was passing, now timing out, likely refactor as rule
-// TODO refactor for better handling of overflow/safeAssumptions
-invariant convertToAssetsWeakAdditivity(uint256 sharesA, uint256 sharesB) // TODO update to account for 'floor' of possible values
-    sharesA + sharesB < max_uint128 &&
-    convertToAssets(sharesA) + convertToAssets(sharesB) < max_uint256 &&
-    convertToAssets(sharesA + sharesB) < max_uint256 =>
-    convertToAssets(sharesA) + convertToAssets(sharesB) <= convertToAssets(sharesA + sharesB)
+rule convertToAssetsWeakAdditivity() { // TODO update to account for 'floor' of possible values
+    uint256 sharesA; uint256 sharesB;
+    require sharesA + sharesB < max_uint128
+         && convertToAssets(sharesA) + convertToAssets(sharesB) < max_uint256
+         && convertToAssets(sharesA + sharesB) < max_uint256;
+    assert convertToAssets(sharesA) + convertToAssets(sharesB) <= convertToAssets(sharesA + sharesB),
+        "converting sharesA and sharesB to assets then summing them must yield a smaller or equal result to summing them then converting";
+}
 
-// TODO was passing, now timing out, likely refactor as rule
-// TODO refactor for better handling of overflow/safeAssumptions
-invariant convertToSharesWeakAdditivity(uint256 assetsA, uint256 assetsB) // TODO update to account for 'floor' of possible values
-    assetsA + assetsB < max_uint128 &&
-    convertToShares(assetsA) + convertToShares(assetsB) < max_uint256 &&
-    convertToShares(assetsA + assetsB) < max_uint256 =>
-    convertToShares(assetsA) + convertToShares(assetsB) <= convertToShares(assetsA + assetsB)
+rule convertToSharesWeakAdditivity() { // TODO update to account for 'floor' of possible values
+    uint256 assetsA; uint256 assetsB;
+    require assetsA + assetsB < max_uint128
+         && convertToAssets(assetsA) + convertToAssets(assetsB) < max_uint256
+         && convertToAssets(assetsA + assetsB) < max_uint256;
+    assert convertToAssets(assetsA) + convertToAssets(assetsB) <= convertToAssets(assetsA + assetsB),
+        "converting assetsA and assetsB to shares then summing them must yield a smaller or equal result to summing them then converting";
+}
 
 rule conversionWeakMonotonicity { // TODO refactor to account for floor of possible values
     uint256 smallerShares; uint256 largerShares;
@@ -222,18 +235,19 @@ rule conversionWeakMonotonicity { // TODO refactor to account for floor of possi
         "converting more assets must yield equal or greater shares";
 }
 
-// TODO likely refactor as rule
-// TODO consider refactor to form of inverse_amount and inverse_shares from math properties
-invariant conversionWeakIntegrity(uint256 sharesOrAssets) // TODO update to include floor for returned value for rounding
-    convertToShares(convertToAssets(sharesOrAssets)) <= sharesOrAssets &&
-    convertToAssets(convertToShares(sharesOrAssets)) <= sharesOrAssets
-
+rule conversionWeakIntegrity() { // TODO update to include floor for returned value for rounding
+    uint256 sharesOrAssets;
+    assert convertToShares(convertToAssets(sharesOrAssets)) <= sharesOrAssets,
+        "converting shares to assets then back to shares must return shares less than or equal to the original amount";
+    assert convertToAssets(convertToShares(sharesOrAssets)) <= sharesOrAssets,
+        "converting assets to shares then back to assets must return assets less than or equal to the original amount";
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 //// # stakeholder properties //////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
-rule contributingProducesShares(method f) // PASSING
+rule contributingProducesShares(method f)
 filtered {
     f -> f.selector == deposit(uint256,address).selector
       || f.selector == mint(uint256,address).selector
@@ -242,14 +256,13 @@ filtered {
     env e; uint256 assets; uint256 shares;
     address contributor; require contributor == e.msg.sender;
     address receiver;
-    require currentContract != contributor
-         && currentContract != receiver
-         && currentContract != asset();
+    require currentContract != contributor // TODO justify
+         && currentContract != receiver;
 
-    requireInvariant sumOfBalancePairsBounded(contributor, receiver); // TODO safeAssumptions refactor
-    requireInvariant vaultSolvency(); // TODO replace
     require previewDeposit(assets) + balanceOf(receiver) <= max_uint256; // safe assumption because call to _mint will revert if totalSupply += amount overflows
     require shares + balanceOf(receiver) <= max_uint256; // same as above
+
+    safeAssumptions(e, contributor, receiver);
 
     uint256 contributorAssetsBefore = userAssets(contributor);
     uint256 receiverSharesBefore = balanceOf(receiver);
@@ -263,12 +276,13 @@ filtered {
         "a contributor's assets must decrease if and only if the receiver's shares increase";
 }
 
-rule onlyContributionMethodsReduceAssets(method f) { // PASSING
-    address user; require user != currentContract; // TODO needs safeAssumptions refactor
-    require asset() != currentContract;
+rule onlyContributionMethodsReduceAssets(method f) {
+    address user; require user != currentContract; // TODO justify
     uint256 userAssetsBefore = userAssets(user);
 
     env e; calldataarg args;
+    safeAssumptions(e, user, _);
+
     f(e, args);
 
     uint256 userAssetsAfter = userAssets(user);
@@ -279,22 +293,19 @@ rule onlyContributionMethodsReduceAssets(method f) { // PASSING
         "a user's assets must not go down except on calls to contribution methods";
 }
 
-rule reclaimingProducesAssets(method f) // PASSING
+rule reclaimingProducesAssets(method f)
 filtered {
     f -> f.selector == withdraw(uint256,address,address).selector
       || f.selector == redeem(uint256,address,address).selector
 }
 {
     env e; uint256 assets; uint256 shares;
-    address caller; require caller == e.msg.sender;
     address receiver; address owner;
-    require currentContract != caller // TODO needs safeAssumptions refactor
+    require currentContract != e.msg.sender // TODO justify
          && currentContract != receiver
-         && currentContract != owner
-         && currentContract != asset();
+         && currentContract != owner;
 
-    requireInvariant sumOfBalancePairsBounded(owner, receiver); // check if needed
-    requireInvariant vaultSolvency(); // not needed for withdrawing, check for redeeming TODO remove/rework
+    safeAssumptions(e, receiver, owner);
 
     uint256 ownerSharesBefore = balanceOf(owner);
     uint256 receiverAssetsBefore = userAssets(receiver);
@@ -322,7 +333,7 @@ filtered {
 }
 {
     env e;
-    require currentContract != e.msg.sender; // TODO safeAssumptions refactor
+    require currentContract != e.msg.sender; // TODO justify
     address user;
     uint256 userSharesBefore = balanceOf(user);
     uint256 userAssetsBefore = userAssets(user);
@@ -372,26 +383,21 @@ rule vaultMustAllowReclaiming() { // TODO
         "TODO calls to withdraw and redeem must not revert improperly";
 }
 
-// TODO check logic
-rule contributionMethodWeakEquivalence() { // TODO FAILING due to violation of expected rounding behavior
+rule contributionMethodWeakEquivalence() { // FAILING due to violation of expected rounding behavior
     env e; storage before = lastStorage;
-    address contractAddress = currentContract; address assetAddress = asset();
     address receiver; uint256 receiverPriorBalance = balanceOf(receiver);
     uint256 senderPriorAssets = userAssets(e.msg.sender);
-    require contractAddress != e.msg.sender
-         && contractAddress != receiver
-         && contractAddress != assetAddress;
+    require currentContract != e.msg.sender && currentContract != receiver; // TODO justify
 
-    requireInvariant sumOfBalancePairsBounded(e.msg.sender, receiver); // TODO needs safeAssumptions refactor
-    requireInvariant vaultSolvency();
+    safeAssumptions(e, e.msg.sender, receiver);
 
     uint256 assets; uint256 shares;
 
-    deposit(e, assets, receiver) at before; // 1 asset in, 102 shares out from previewDeposit [ (1 * 102) / 1 ] -> [ (assets * totalSupply) / totalAssets ]
+    deposit(e, assets, receiver) at before;
     uint256 depositAssetsIn = senderPriorAssets - userAssets(e.msg.sender);
     uint256 depositSharesOut = balanceOf(receiver) - receiverPriorBalance;
     
-    mint(e, shares, receiver) at before; // 1 asset in, 1 share out from previewMint [ (((1 * 1) - 1) / 102) + 1 ] -> [ (((shares * totalAssets) - 1) / totalSupply) + 1 ]
+    mint(e, shares, receiver) at before;
     uint256 mintAssetsIn = senderPriorAssets - userAssets(e.msg.sender);
     uint256 mintSharesOut = balanceOf(receiver) - receiverPriorBalance;
 
@@ -402,18 +408,13 @@ rule contributionMethodWeakEquivalence() { // TODO FAILING due to violation of e
     
 }
 
-// TODO same tasks as contributionMethodWeakEquivalence
-rule reclaimingMethodWeakEquivalence() {
+rule reclaimingMethodWeakEquivalence() { // FAILING due to violation of expected rounding behavior
     env e; storage before = lastStorage;
-    address contractAddress = currentContract; address assetAddress = asset();
     address receiver; uint256 receiverPriorAssets = userAssets(receiver);
     address owner; uint256 ownerPriorBalance = balanceOf(owner);
-    require contractAddress != receiver
-         && contractAddress != owner
-         && contractAddress != assetAddress;
+    require currentContract != receiver && currentContract != owner; // TODO justify
 
-    requireInvariant sumOfBalancePairsBounded(owner, receiver);
-    requireInvariant vaultSolvency();
+    safeAssumptions(e, receiver, owner);
 
     uint256 assets; uint256 shares;
 
@@ -431,7 +432,7 @@ rule reclaimingMethodWeakEquivalence() {
         "if withdraw and redeem produce equal assets, then withdraw must contribute shares greater than or equal to redeem";    
 }
 
-
+/*
 //// # function previewFunction ////////////////////////////////////////////////
 
 /// relationship between deposit and previewDeposit
@@ -501,6 +502,8 @@ rule redeemMaxRedeemRelationship {
 /// relationship between convertToShares and previewWithdraw
 
 /// relationship between convertToAssets and previewRedeem
+*/
+
 
 ////////////////////////////////////////////////////////////////////////////////
 //// # helpers and miscelanious ////////////////////////////////////////////////
@@ -516,7 +519,7 @@ rule sanity {
         "This rule should always fail";
 }
 
-function safeAssumptions(env e, address receiver, address owner) { // DONE
+function safeAssumptions(env e, address receiver, address owner) {
     require currentContract != asset(); // Although this is not disallowed, we assume the contract's underlying asset is not the contract itself
     requireInvariant totalSupplyIsSumOfBalances();
     requireInvariant sumOfBalancePairsBounded(receiver, owner);
@@ -531,19 +534,16 @@ function updateChangeMarker(env e, uint256 oldLevel, uint256 newLevel) returns u
     }
 }
 
-// TODO clean up
 function callContributionMethods(env e, method f, uint256 assets, uint256 shares, address receiver) {
     if (f.selector == deposit(uint256,address).selector) {
         deposit(e, assets, receiver);
-        // return;
     }
     if (f.selector == mint(uint256,address).selector) {
         mint(e, shares, receiver);
-        // return;
     }
-} // TODO file bug report on weird java error when returns are present, works when returns commented out
+}
 
-function callReclaimingMethods(env e, method f, uint256 assets, uint256 shares, address receiver, address owner) { // DONE
+function callReclaimingMethods(env e, method f, uint256 assets, uint256 shares, address receiver, address owner) {
     if (f.selector == withdraw(uint256,address,address).selector) {
         withdraw(e, assets, receiver, owner);
     }
@@ -555,67 +555,9 @@ function callReclaimingMethods(env e, method f, uint256 assets, uint256 shares, 
 
 
 
-
-
-
-
-
-
-
-
-// TODO remove
-// invariant assetIsNotVaultToken() // violated init state
-//     asset() != currentContract // Armen interesting idea. Bug? Def weird
-//     // in report specify...
-
-
-
-
-
-
-// ++++++++++++++++++
-
-
-
-rule contractCannotCallIoMethods(method f) 
-filtered {
-    f -> f.selector == deposit(uint256,address).selector
-      || f.selector == mint(uint256,address).selector
-      || f.selector == withdraw(uint256,address,address).selector
-      || f.selector == redeem(uint256,address,address).selector
-}
-{
-    env e; calldataarg args;
-    f(e, args);
-    assert currentContract != e.msg.sender,
-        "the vault must not be able to call its own contribution and reclaiming functions";
-} // TODO doesn't probably do what I want it to: remove it
-
-
 // rounding direction in transactions should always favor vault
 
 // Only I/approved should be able to remove any of the assets/shares I have in the vault // --> distinct permissions section?
 
 // No one should be able to take out more than they have in the vault // --> like solvency but personal
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-/*
-
-
-
-*/
