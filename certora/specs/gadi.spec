@@ -72,7 +72,23 @@ rule zeroDepositZeroShares()
     uint assets; address receiver; uint shares;
     shares = deposit(e,assets, receiver);
 
-    assert shares == 0 => assets == 0;
+    assert shares == 0 <=> assets == 0;
+}
+
+rule userSolvency(method f)
+{
+    env e;
+    calldataarg args;
+
+    address user;
+    require user != currentContract && user != asset;
+
+
+    uint assetValueBefore = asset.balanceOf(user) + convertToAssets(balanceOf(user));
+    f(e,args);
+    uint assetValueAfter  = asset.balanceOf(user) + convertToAssets(balanceOf(user));
+
+    assert assetValueBefore == assetValueAfter;
 }
 
 invariant vaultEquilibrium()
