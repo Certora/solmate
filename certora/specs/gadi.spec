@@ -52,8 +52,10 @@ rule dustFavorsTheHouse()
     
     uint assets1; address receiver; address owner;
     
-    require e.msg.sender != currentContract && e.msg.sender != asset;
-    require receiver != currentContract && receiver != asset;
+    require e.msg.sender != currentContract;
+    require receiver != currentContract;
+
+    // require totalSupply() >= asset.balanceOf(currentContract);
 
     uint balanceBefore = asset.balanceOf(currentContract);
 
@@ -62,7 +64,7 @@ rule dustFavorsTheHouse()
 
     uint balanceAfter = asset.balanceOf(currentContract);
 
-    assert balanceAfter >= balanceBefore;
+    assert balanceAfter == balanceBefore;
 }
 
 rule zeroDepositZeroShares()
@@ -75,21 +77,41 @@ rule zeroDepositZeroShares()
     assert shares == 0 <=> assets == 0;
 }
 
-rule userSolvency(method f)
+rule userSolvency(method f) filtered{f-> f.selector != transferFrom(address,address,uint256).selector && f.selector != transfer(address,uint256).selector}
 {
     env e;
     calldataarg args;
 
     address user;
-    require user != currentContract && user != asset;
+    require user != currentContract && e.msg.sender != currentContract;
 
+    // require totalSupply() >= asset.balanceOf(currentContract);
+    uint256 assets = asset.balanceOf(user);
+    uint256 shares = balanceOf(user);
 
-    uint assetValueBefore = asset.balanceOf(user) + convertToAssets(balanceOf(user));
-    f(e,args);
+    uint assetValueBefore = asset.balanceOf(user) + convertToAssets(balanceOf(user));    
+    callContributionMethods(e, f, assets, shares, user);
     uint assetValueAfter  = asset.balanceOf(user) + convertToAssets(balanceOf(user));
 
     assert assetValueBefore == assetValueAfter;
 }
 
 invariant vaultEquilibrium()
-    asset.balanceOf(currentContract) == convertToAssets(totalSupply())
+    asset.balanceOf(currentContract) >= convertToAssets(totalSupply())
+
+
+///// help functions
+function callContributionMethods(env e, method f, uint256 assets, uint256 shares, address receiver) {
+    if (f.selector == deposit(uint256,address).selector) {
+        deposit(e, assets, receiver);
+    }
+    if (f.selector == mint(uint256,address).selector) {
+        mint(e, shares, receiver);
+    }
+    if (f.selector == withdraw(uint256,address,address).selector) {
+        withdraw(e, assets, receiver, _);
+    }
+    if (f.selector == redeem(uint256,address,address).selector) {
+        redeem(e, shares, receiver, _);
+    }
+}
