@@ -24,14 +24,6 @@ methods {
 }
 
 
-ghost mathint sumOfBalances { // mathint caused negative value counterexamples
-    init_state axiom sumOfBalances == 0;
-}
-
-hook Sstore balanceOf[KEY address addy] uint256 newValue (uint256 oldValue) STORAGE {
-    sumOfBalances = sumOfBalances + newValue - oldValue;
-}
-
 rule sumOfAllBalancesIsConstant(method f)
 {
     env e;
@@ -39,7 +31,7 @@ rule sumOfAllBalancesIsConstant(method f)
 
     uint totalBalancesBefore = asset.totalSupply(e);
 
-    f(e,args);
+        f(e,args);
 
     uint totalBalancesAfter = asset.totalSupply(e);
 
@@ -55,24 +47,24 @@ rule dustFavorsTheHouse()
     require e.msg.sender != currentContract;
     require receiver != currentContract;
 
-    // require totalSupply() >= asset.balanceOf(currentContract);
+    require totalSupply() >= asset.balanceOf(currentContract);// that is the initial assumption, maybe should  be verified
 
-    uint balanceBefore = asset.balanceOf(currentContract);
+        uint balanceBefore = asset.balanceOf(currentContract);
 
-    uint shares = deposit(e,assets1, receiver);
-    uint assets2= redeem(e,shares,receiver,owner);
+        uint shares = deposit(e,assets1, receiver);
+        uint assets2= redeem(e,shares,receiver,owner);
 
-    uint balanceAfter = asset.balanceOf(currentContract);
+        uint balanceAfter = asset.balanceOf(currentContract);
 
-    assert balanceAfter == balanceBefore;
+    assert balanceAfter >= balanceBefore;
 }
 
 rule zeroDepositZeroShares()
 {
     env e;
-
     uint assets; address receiver; uint shares;
-    shares = deposit(e,assets, receiver);
+    
+        shares = deposit(e,assets, receiver);
 
     assert shares == 0 <=> assets == 0;
 }
@@ -85,13 +77,13 @@ rule userSolvency(method f) filtered{f-> f.selector != transferFrom(address,addr
     address user;
     require user != currentContract && e.msg.sender != currentContract;
 
-    // require totalSupply() >= asset.balanceOf(currentContract);
+    // require totalSupply() >= asset.balanceOf(currentContract);// that is the initial assumption, it breaks when transfer directly to the vault
     uint256 assets = asset.balanceOf(user);
     uint256 shares = balanceOf(user);
 
-    uint assetValueBefore = asset.balanceOf(user) + convertToAssets(balanceOf(user));    
-    callContributionMethods(e, f, assets, shares, user);
-    uint assetValueAfter  = asset.balanceOf(user) + convertToAssets(balanceOf(user));
+        uint assetValueBefore = asset.balanceOf(user) + convertToAssets(balanceOf(user));    
+        callContributionMethods(e, f, assets, shares, user);
+        uint assetValueAfter  = asset.balanceOf(user) + convertToAssets(balanceOf(user));
 
     assert assetValueBefore == assetValueAfter;
 }
