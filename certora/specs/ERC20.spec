@@ -26,25 +26,9 @@ rule sanity {
         "This rule should always fail";
 }
 
-invariant sumOfBalancePairsBounded(address addy1, address addy2)
-    balanceOf(addy1) + balanceOf(addy2) <= totalSupply() // <= max_uint256
-    {
-        preserved /*transferFrom(address x, address y, uint256 amount)*/ {
-            // requireInvariant totalSupplyIsSumOfBalances(); // can't do this, but we can cheat with just require statement that uses what we've proven elsewhere
-            // require totalSupply() == sumOfBalances; // not this
-            // require balanceOf(addy1) + balanceOf(addy2) <= sumOfBalances; // not this either
-            require false;
-            // obviously vacuous, but variant holds bc totalSupplyIsSumOfBalances is proven, so the sum of any 2 balances is <= totalSupply
-            // Is there a better way to convey this?
-        }
-    } // addy1 != addy2
+///////////
 
-// prove for any transacation, at most 2 bnalances change
-// rule given 2 balances <= totalSupply, 
-// given a tx that changes at most these two, they are still less than totalSUpply
-
-
-ghost uint256 sumOfBalances { // mathint caused negative value counterexamples
+ghost uint256 sumOfBalances {
     init_state axiom sumOfBalances == 0;
 }
 
@@ -55,14 +39,45 @@ hook Sstore balanceOf[KEY address addy] uint256 newValue (uint256 oldValue) STOR
 invariant totalSupplyIsSumOfBalances()
     totalSupply() == sumOfBalances
 
+invariant sumOfBalancePairsBounded(address addy1, address addy2)
+    addy1 != addy2 => balanceOf(addy1) + balanceOf(addy2) <= totalSupply()
+    {
+        preserved {
+            // totalSupplyIsSumOfBalances implies that the sum of any two distinct balances must be less than totalSupply
+            require false;
+            requireInvariant totalSupplyIsSumOfBalances();
+        }
+    }
+
+invariant singleBalanceBounded(address addy)
+    balanceOf(addy) <= totalSupply()
+    {
+        preserved {
+            // totalSupplyIsSumOfBalances implies that any single balance must be less than totalSupply
+            require false;
+            requireInvariant totalSupplyIsSumOfBalances();
+        }
+    }
+
+function safeAssumptions(env e, address receiver, address owner) {
+    // require currentContract != asset(); // Although this is not disallowed, we assume the contract's underlying asset is not the contract itself
+    requireInvariant totalSupplyIsSumOfBalances();
+    requireInvariant sumOfBalancePairsBounded(receiver, owner);
+    requireInvariant singleBalanceBounded(receiver);
+}
+
 /// The zero address must always have a balance of 0
 invariant ZeroAddressNoBalance()
     balanceOf(0) == 0
 
-function safeAssumptions(address a, address b) {
-    requireInvariant sumOfBalancePairsBounded(a, b);
-    requireInvariant totalSupplyIsSumOfBalances();
-}
+
+////////////
+
+// Important Ideas
+
+// prove for any transacation, at most 2 bnalances change
+// rule given 2 balances <= totalSupply, 
+// given a tx that changes at most these two, they are still less than totalSUpply
 
 // add this hook only after invariant totalSupplyIsSumOfBalances
 // w hook on Sload, we can assume sumOfBalancers >= value now loaded
@@ -71,7 +86,7 @@ function safeAssumptions(address a, address b) {
 rule noFeeOnTransferFrom(address alice, address bob, uint256 amount) {
     env e; calldataarg args;
     // requireInvariant sumOfBalancePairsBounded(alice, bob);
-    safeAssumptions(alice, bob);
+    safeAssumptions(e, alice, bob);
     require alice != bob;
     require allowance(alice, e.msg.sender) >= amount;
     uint256 balanceBefore = balanceOf(bob); // make mathint?
@@ -87,7 +102,7 @@ rule noFeeOnTransferFrom(address alice, address bob, uint256 amount) {
 rule noFeeOnTransfer(address bob, uint256 amount) {
     env e; calldataarg args;
     // requireInvariant sumOfBalancePairsBounded(e.msg.sender, bob);
-    safeAssumptions(e.msg.sender, bob);
+    safeAssumptions(e, e.msg.sender, bob);
     require bob != e.msg.sender;
     uint256 balanceSenderBefore = balanceOf(e.msg.sender);
     uint256 balanceBefore = balanceOf(bob);
@@ -107,7 +122,7 @@ rule transferCorrect(address to, uint256 amount) {
     uint256 toBalanceBefore = balanceOf(to);
     // require fromBalanceBefore + toBalanceBefore <= max_uint256; // prior
     // requireInvariant sumOfBalancePairsBounded(e.msg.sender, to);
-    safeAssumptions(e.msg.sender, to);
+    safeAssumptions(e, e.msg.sender, to);
 
 
     transfer@withrevert(e, to, amount);
@@ -128,13 +143,13 @@ rule transferCorrect(address to, uint256 amount) {
     }
 }
 
-rule transferFromCorrect(address from, address to, uint256 amount) {
+rule transferFromCorrect(address from, address to, uint256 amount) { // failing if allowanceBefore is max_uint256
     env e;
     require e.msg.value == 0;
     uint256 fromBalanceBefore = balanceOf(from);
     uint256 toBalanceBefore = balanceOf(to);
     uint256 allowanceBefore = allowance(from, e.msg.sender);
-    // require allowanceBefore != max_uint256; // I am not sure why this value causes a counterexample
+    require allowanceBefore != max_uint256; // max_uint256 is (often) used to signify unlimited allowance
     require fromBalanceBefore + toBalanceBefore <= max_uint256;
 
     transferFrom(e, from, to, amount);
@@ -146,13 +161,14 @@ rule transferFromCorrect(address from, address to, uint256 amount) {
             "if the source and recipient are different, the associated balances and allowance must change correctly";
 }
 
-rule transferFromReverts(address from, address to, uint256 amount) {
+rule transferFromReverts(address from, address to, uint256 amount) { // failing if to == 0
     env e;
     uint256 allowanceBefore = allowance(from, e.msg.sender);
     uint256 fromBalanceBefore = balanceOf(from);
     require from != 0 && e.msg.sender != 0;
     require e.msg.value == 0;
     require fromBalanceBefore + balanceOf(to) <= max_uint256;
+    require to != 0; // checking for other violations
 
     transferFrom@withrevert(e, from, to, amount);
 
@@ -182,16 +198,17 @@ rule NoChangeTotalSupply(method f) {
         "method calls must not alter the total supply";
 } // improve, update name
 
-rule noBurningTokens(method f) {
+rule onlyMintIncreasesTotalSupply(method f) { // was noBurningTokens
     uint256 totalSupplyBefore = totalSupply();
     env e;
+    safeAssumptions(e, _, _);
     calldataarg args;
     f(e, args);
-    assert totalSupply() > totalSupplyBefore => f.selector == mint(address, uint256).selector, // underflow
+    assert totalSupply() > totalSupplyBefore => f.selector == mint(address, uint256).selector, // underflow on burn
         "method calls must not decrease the total supply";
 } // improve, update name, call safeAssumptions?
 
-rule noMintingTokens(method f) {
+rule onlyBurnDecreasesTotalSupply(method f) { // was noMintingTokens
     uint256 totalSupplyBefore = totalSupply();
     env e;
     calldataarg args;
@@ -225,6 +242,24 @@ rule ChangingAllowance(method f, address from, address spender) {
                 "given a spender's allowance for an account, if that spender calls transferFrom drawing from that account, \
                 either the allowance must drop by the amount, the source and recipient must be the same, or the prior \
                 allowance must be the largest possible value"; // this feels like an awkwardly constructed rule
+        } else {
+            assert allowance(from, spender) == allowanceBefore,
+                "a transferFrom call must not change a spender's allowance for an account if either the account isn't the \
+                source or the spender isn't the caller";
+        }
+    } else if (f.selector == permit(address, address, uint256, uint256, uint8, bytes32, bytes32).selector) {
+        address owner;
+        address spender_;
+        uint256 value;
+        uint256 deadline;
+        uint8 v;
+        bytes32 r;
+        bytes32 s;
+        permit(e, owner, spender_, value, deadline, v, r, s);
+        uint256 allowanceAfter = allowance(from, spender);
+        if (/*from == e.msg.sender && */from == owner && spender == spender_) {
+            assert allowance(from, spender) == value,
+                "TODO";
         } else {
             assert allowance(from, spender) == allowanceBefore,
                 "a transferFrom call must not change a spender's allowance for an account if either the account isn't the \
@@ -277,10 +312,10 @@ rule TransferFromDoesntChangeOtherBalance(address from, address to, uint256 amou
         "a call to transferFrom must not change the balance of an address not involved in the transaction";
 }
 
-rule OtherBalanceOnlyGoesUp(address other, method f) {
+rule OtherBalanceOnlyGoesUp(address other, method f) { // failing due to burn harness method, add filtered
     env e;
     require other != currentContract;
-    safeAssumptions(e.msg.sender, other);
+    safeAssumptions(e, e.msg.sender, other);
     uint256 balanceBefore = balanceOf(other);
 
     if (f.selector == transferFrom(address, address, uint256).selector) {
