@@ -19,6 +19,7 @@ methods {
     totalSupply() returns uint256 envfree
 
     convertToAssets(uint256) returns uint256 envfree
+    convertToShares(uint256) returns uint256 envfree
     
     asset.balanceOf(address) returns uint256 envfree
 }
@@ -47,7 +48,7 @@ rule dustFavorsTheHouse()
     require e.msg.sender != currentContract;
     require receiver != currentContract;
 
-    require totalSupply() >= asset.balanceOf(currentContract);// that is the initial assumption, maybe should  be verified
+    require totalSupply() != 0;
 
         uint balanceBefore = asset.balanceOf(currentContract);
 
@@ -59,14 +60,53 @@ rule dustFavorsTheHouse()
     assert balanceAfter >= balanceBefore;
 }
 
-rule zeroDepositZeroShares()
+rule zeroDepositZeroShares(uint assets, address receiver)
 {
     env e;
-    uint assets; address receiver; uint shares;
     
-        shares = deposit(e,assets, receiver);
+       uint shares = deposit(e,assets, receiver);
 
     assert shares == 0 <=> assets == 0;
+}
+
+rule lossLimit()
+{
+    env e;
+    
+    uint assetsIn; address receiver; address owner;
+    
+    require e.msg.sender != currentContract;
+    require assetsIn >= 1000;
+    require totalSupply() != 0;
+
+        uint shares = deposit(e,assetsIn, receiver);
+        uint assetsOut = redeem(e,shares,receiver,owner);
+
+    assert  assetsIn <= assetsOut * 2;
+    assert  assetsIn  * 2 >= assetsOut;
+}
+
+rule gainLimit()
+{
+    env e;
+    
+    uint assetsIn; address receiver; address owner;
+    
+    require e.msg.sender != currentContract;
+    require assetsIn >= 1000;
+    // require totalSupply() != 0; // no gain in this case
+
+        uint shares = deposit(e,assetsIn, receiver);
+        uint assetsOut = redeem(e,shares,receiver,owner);
+
+    assert  assetsIn  * 2 >= assetsOut;
+}
+
+// 
+rule convertToCorrectness(address user, uint256 amount, uint256 shares)
+{
+    assert amount >= convertToAssets(convertToShares(amount));
+    assert shares >= convertToShares(convertToAssets(shares));
 }
 
 rule userSolvency(method f) filtered{f-> f.selector != transferFrom(address,address,uint256).selector && f.selector != transfer(address,uint256).selector}
@@ -77,15 +117,20 @@ rule userSolvency(method f) filtered{f-> f.selector != transferFrom(address,addr
     address user;
     require user != currentContract && e.msg.sender != currentContract;
 
-    // require totalSupply() >= asset.balanceOf(currentContract);// that is the initial assumption, it breaks when transfer directly to the vault
+    require totalSupply() != 0; // start with non zero supply
+    require balanceOf(user) <= totalSupply();
+
     uint256 assets = asset.balanceOf(user);
     uint256 shares = balanceOf(user);
+    uint256 valueOfOneShare = convertToAssets(1);
+    require valueOfOneShare != 0;
 
-        uint assetValueBefore = asset.balanceOf(user) + convertToAssets(balanceOf(user));    
+
+        mathint assetValueBefore = asset.balanceOf(user) + balanceOf(user) * valueOfOneShare;// convertToAssets(balanceOf(user));    
         callContributionMethods(e, f, assets, shares, user);
-        uint assetValueAfter  = asset.balanceOf(user) + convertToAssets(balanceOf(user));
+        mathint assetValueAfter  = asset.balanceOf(user) + convertToAssets(balanceOf(user));
 
-    assert assetValueBefore == assetValueAfter;
+    assert assetValueBefore <= assetValueAfter + valueOfOneShare * 2;
 }
 
 invariant vaultEquilibrium()

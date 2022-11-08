@@ -28,7 +28,7 @@ rule sanity {
 
 ///////////
 
-ghost uint256 sumOfBalances {
+ghost mathint sumOfBalances {
     init_state axiom sumOfBalances == 0;
 }
 
