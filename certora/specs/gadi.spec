@@ -77,7 +77,6 @@ rule lossLimit()
     
     require e.msg.sender != currentContract;
     require assetsIn >= 1000;
-    require totalSupply() != 0;
 
         uint shares = deposit(e,assetsIn, receiver);
         uint assetsOut = redeem(e,shares,receiver,owner);
@@ -130,7 +129,7 @@ rule userSolvency(method f) filtered{f-> f.selector != transferFrom(address,addr
         callContributionMethods(e, f, assets, shares, user);
         mathint assetValueAfter  = asset.balanceOf(user) + convertToAssets(balanceOf(user));
 
-    assert assetValueBefore <= assetValueAfter + valueOfOneShare;
+    assert assetValueBefore <= assetValueAfter + valueOfOneShare * 2;
 }
 
 invariant vaultEquilibrium()
