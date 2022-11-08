@@ -45,8 +45,7 @@ rule dustFavorsTheHouse()
     
     uint assets1; address receiver; address owner;
     
-    require e.msg.sender != currentContract;
-    require receiver != currentContract;
+    require e.msg.sender != currentContract && receiver != currentContract;
 
     require totalSupply() != 0;
 
@@ -69,6 +68,7 @@ rule zeroDepositZeroShares(uint assets, address receiver)
     assert shares == 0 <=> assets == 0;
 }
 
+// Can the loss be more than double ?
 rule lossLimit()
 {
     env e;
@@ -84,6 +84,7 @@ rule lossLimit()
     assert  assetsIn <= assetsOut * 2;
 }
 
+// Can the gain be more than double ?
 rule gainLimit()
 {
     env e;
@@ -116,12 +117,12 @@ rule userSolvency(method f) filtered{f-> f.selector != transferFrom(address,addr
     require user != currentContract && e.msg.sender != currentContract;
 
     require totalSupply() != 0; // start with non zero supply
-    require balanceOf(user) <= totalSupply();
+    require balanceOf(user) <= totalSupply(); // avoid counter example
 
     uint256 assets = asset.balanceOf(user);
     uint256 shares = balanceOf(user);
-    uint256 valueOfOneShare = convertToAssets(1);
-    require valueOfOneShare != 0;
+    
+    uint256 valueOfOneShare = convertToAssets(1); require valueOfOneShare != 0;
 
 
         mathint assetValueBefore = asset.balanceOf(user) + balanceOf(user) * valueOfOneShare;// convertToAssets(balanceOf(user));    
