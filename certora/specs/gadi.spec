@@ -130,7 +130,7 @@ rule userSolvency(method f) filtered{f-> f.selector != transferFrom(address,addr
         callContributionMethods(e, f, assets, shares, user);
         mathint assetValueAfter  = asset.balanceOf(user) + convertToAssets(balanceOf(user));
 
-    assert assetValueBefore <= assetValueAfter + valueOfOneShare * 2;
+    assert assetValueBefore <= assetValueAfter + valueOfOneShare;
 }
 
 invariant vaultEquilibrium()
