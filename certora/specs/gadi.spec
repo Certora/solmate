@@ -82,7 +82,6 @@ rule lossLimit()
         uint assetsOut = redeem(e,shares,receiver,owner);
 
     assert  assetsIn <= assetsOut * 2;
-    assert  assetsIn  * 2 >= assetsOut;
 }
 
 rule gainLimit()
