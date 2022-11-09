@@ -39,20 +39,18 @@ rule sumOfAllBalancesIsConstant(method f)
     assert totalBalancesBefore == totalBalancesAfter;
 }
 
-rule dustFavorsTheHouse()
+rule dustFavorsTheHouse(uint assetsIn, address receiver, address owner)
 {
     env e;
-    
-    uint assets1; address receiver; address owner;
-    
+        
     require e.msg.sender != currentContract && receiver != currentContract;
 
     require totalSupply() != 0;
 
         uint balanceBefore = asset.balanceOf(currentContract);
 
-        uint shares = deposit(e,assets1, receiver);
-        uint assets2= redeem(e,shares,receiver,owner);
+        uint shares = deposit(e,assetsIn, receiver);
+        uint assetsOut = redeem(e,shares,receiver,owner);
 
         uint balanceAfter = asset.balanceOf(currentContract);
 
@@ -69,11 +67,9 @@ rule zeroDepositZeroShares(uint assets, address receiver)
 }
 
 // Can the loss be more than double ?
-rule lossLimit()
+rule lossLimit(uint assetsIn, address receiver, address owner)
 {
     env e;
-    
-    uint assetsIn; address receiver; address owner;
     
     require e.msg.sender != currentContract;
     require assetsIn >= 1000;
@@ -85,12 +81,10 @@ rule lossLimit()
 }
 
 // Can the gain be more than double ?
-rule gainLimit()
+rule gainLimit(uint assetsIn, address receiver, address owner)
 {
     env e;
-    
-    uint assetsIn; address receiver; address owner;
-    
+        
     require e.msg.sender != currentContract;
     require assetsIn >= 1000;
     // require totalSupply() != 0; // no gain in this case
