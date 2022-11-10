@@ -96,7 +96,7 @@ rule gainLimit(uint assetsIn, address receiver, address owner)
 }
 
 // 
-rule convertToCorrectness(address user, uint256 amount, uint256 shares)
+rule convertToCorrectness(uint256 amount, uint256 shares)
 {
     assert amount >= convertToAssets(convertToShares(amount));
     assert shares >= convertToShares(convertToAssets(shares));
