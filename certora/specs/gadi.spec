@@ -102,14 +102,13 @@ rule convertToCorrectness(uint256 amount, uint256 shares)
     assert shares >= convertToShares(convertToAssets(shares));
 }
 
-rule userSolvency(method f) filtered{f-> f.selector != transferFrom(address,address,uint256).selector && f.selector != transfer(address,uint256).selector}
+rule userSolvency(method f, address user)
+filtered{f-> f.selector != transferFrom(address,address,uint256).selector && f.selector != transfer(address,uint256).selector}
 {
     env e;
     calldataarg args;
 
-    address user;
     require user != currentContract && e.msg.sender != currentContract;
-
     require totalSupply() != 0; // start with non zero supply
     require balanceOf(user) <= totalSupply(); // avoid counter example
 
@@ -118,7 +117,7 @@ rule userSolvency(method f) filtered{f-> f.selector != transferFrom(address,addr
     
     uint256 valueOfOneShare = convertToAssets(1); require valueOfOneShare != 0;
 
-
+    // The combined value of user's assets in terms of the underlying asset
         mathint assetValueBefore = asset.balanceOf(user) + balanceOf(user) * valueOfOneShare;// convertToAssets(balanceOf(user));    
         callContributionMethods(e, f, assets, shares, user);
         mathint assetValueAfter  = asset.balanceOf(user) + convertToAssets(balanceOf(user));
