@@ -10,7 +10,6 @@ certoraRun \
     --link ERC4626BalanceOfHarness:asset=DummyERC20A \
     --solc solc8.0 \
     --optimistic_loop \
-    --settings -divideNoRemainder=true \
     --loop_iter 3 \
     --send_only \
     --staging \

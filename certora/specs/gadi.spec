@@ -119,7 +119,8 @@ filtered{f-> f.selector != transferFrom(address,address,uint256).selector && f.s
 
     // The combined value of user's assets in terms of the underlying asset
         mathint assetValueBefore = asset.balanceOf(user) + balanceOf(user) * valueOfOneShare;// convertToAssets(balanceOf(user));    
-        callContributionMethods(e, f, assets, shares, user);
+        // callContributionMethods(e, f, assets, shares, user);
+        deposit(e,assets, user);
         mathint assetValueAfter  = asset.balanceOf(user) + convertToAssets(balanceOf(user));
 
     assert assetValueBefore <= assetValueAfter + valueOfOneShare * 2;
