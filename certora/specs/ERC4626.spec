@@ -1,3 +1,5 @@
+using DummyERC20A as asset 
+
 methods {
     name() returns string envfree;
     symbol() returns string envfree;
@@ -32,6 +34,8 @@ methods {
 
     permit(address,address,uint256,uint256,uint8,bytes32,bytes32);
     DOMAIN_SEPARATOR() returns bytes32;
+
+    asset.balanceOf(address) returns uint256 envfree;
 }
 
 
@@ -461,14 +465,14 @@ rule reclaimingMethodWeakEquivalence() { // FAILING due to violation of expected
 ////////////////////////////////////////////////////////////////////////////////
 
 /// This rule should always fail.
-rule sanity {
-    method f; env e; calldataarg args;
+// rule sanity {
+//     method f; env e; calldataarg args;
 
-    f(e, args);
+//     f(e, args);
 
-    assert false, 
-        "This rule should always fail";
-}
+//     assert false, 
+//         "This rule should always fail";
+// }
 
 function safeAssumptions(env e, address receiver, address owner) {
     require currentContract != asset(); // Although this is not disallowed, we assume the contract's underlying asset is not the contract itself
