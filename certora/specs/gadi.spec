@@ -18,6 +18,9 @@ methods {
     allowance(address, address) returns uint256 envfree
     totalSupply() returns uint256 envfree
 
+
+    totalAssets() returns uint256 envfree
+
     convertToAssets(uint256) returns uint256 envfree
     convertToShares(uint256) returns uint256 envfree
     
@@ -25,6 +28,7 @@ methods {
 }
 
 
+// STATUS - finished (verified)
 rule sumOfAllBalancesIsConstant(method f)
 {
     env e;
@@ -32,13 +36,15 @@ rule sumOfAllBalancesIsConstant(method f)
 
     uint totalBalancesBefore = asset.totalSupply(e);
 
-        f(e,args);
+    f(e,args);
 
     uint totalBalancesAfter = asset.totalSupply(e);
 
     assert totalBalancesBefore == totalBalancesAfter;
 }
 
+
+// STATUS - finished (verified)
 rule dustFavorsTheHouse(uint assetsIn, address receiver, address owner)
 {
     env e;
@@ -57,6 +63,8 @@ rule dustFavorsTheHouse(uint assetsIn, address receiver, address owner)
     assert balanceAfter >= balanceBefore;
 }
 
+
+// STATUS - finished (verified)
 rule zeroDepositZeroShares(uint assets, address receiver)
 {
     env e;
@@ -66,7 +74,16 @@ rule zeroDepositZeroShares(uint assets, address receiver)
     assert shares == 0 <=> assets == 0;
 }
 
-// Can the loss be more than double ?
+
+// STATUS - finished (showed a frontrun bug)
+// Can the loss be more than double 
+
+// Balance - https://vaas-stg.certora.com/output/3106/f633cdcc3e5741ecaa086392e9486171/?anonymousKey=f4c33d32fb82a2b39d9db30f479030142ca51d5d
+// totalAssets() - asset.balanceOf(address(this)) - is too big. like somebody deposited to ERC4626 and trasfered to `asset` before.
+// totalSupply of ERC4626 is too small.
+// kind of frontrun 
+
+// Accounting - the same as above
 rule lossLimit(uint assetsIn, address receiver, address owner)
 {
     env e;
@@ -77,14 +94,23 @@ rule lossLimit(uint assetsIn, address receiver, address owner)
         uint shares = deposit(e,assetsIn, receiver);
         uint assetsOut = redeem(e,shares,receiver,owner);
 
-    assert  assetsIn <= assetsOut * 2;
+    assert assetsIn <= assetsOut * 2;
 }
 
-// Can the gain be more than double ?
+
+// STATUS - finished (showed a frontrun bug)
+// Can the gain be more than double 
+
+// Balance - https://vaas-stg.certora.com/output/3106/f633cdcc3e5741ecaa086392e9486171/?anonymousKey=f4c33d32fb82a2b39d9db30f479030142ca51d5d
+// totalAssets() - asset.balanceOf(address(this)) - is too big. like somebody trasfered to `asset` before.
+// totalSupply of ERC4626 is 0.
+// kind of frontrun
+
+// Accounting - the same as above
 rule gainLimit(uint assetsIn, address receiver, address owner)
 {
     env e;
-        
+    
     require e.msg.sender != currentContract;
     require assetsIn >= 1000;
     // require totalSupply() != 0; // no gain in this case
@@ -92,16 +118,19 @@ rule gainLimit(uint assetsIn, address receiver, address owner)
         uint shares = deposit(e,assetsIn, receiver);
         uint assetsOut = redeem(e,shares,receiver,owner);
 
-    assert  assetsIn  * 2 >= assetsOut;
+    assert assetsIn  * 2 >= assetsOut;
 }
 
-// 
+
+// STATUS - finished (verified)
 rule convertToCorrectness(uint256 amount, uint256 shares)
 {
     assert amount >= convertToAssets(convertToShares(amount));
     assert shares >= convertToShares(convertToAssets(shares));
 }
 
+
+// STATUS - in progress (timeout)
 rule userSolvency(method f, address user)
 filtered{f-> f.selector != transferFrom(address,address,uint256).selector && f.selector != transfer(address,uint256).selector}
 {
@@ -118,16 +147,18 @@ filtered{f-> f.selector != transferFrom(address,address,uint256).selector && f.s
     uint256 valueOfOneShare = convertToAssets(1); require valueOfOneShare != 0;
 
     // The combined value of user's assets in terms of the underlying asset
-        mathint assetValueBefore = asset.balanceOf(user) + balanceOf(user) * valueOfOneShare;// convertToAssets(balanceOf(user));    
-        // callContributionMethods(e, f, assets, shares, user);
-        deposit(e,assets, user);
-        mathint assetValueAfter  = asset.balanceOf(user) + convertToAssets(balanceOf(user));
+    mathint assetValueBefore = asset.balanceOf(user) + balanceOf(user) * valueOfOneShare;// convertToAssets(balanceOf(user));    
+    // callContributionMethods(e, f, assets, shares, user);
+    deposit(e,assets, user);
+    mathint assetValueAfter  = asset.balanceOf(user) + convertToAssets(balanceOf(user));
 
     assert assetValueBefore <= assetValueAfter + valueOfOneShare * 2;
 }
 
-invariant vaultEquilibrium()
-    asset.balanceOf(currentContract) >= convertToAssets(totalSupply())
+
+// STATUS - finished (verified)
+invariant vaultEquilibrium(env e)
+    totalAssets() >= convertToAssets(totalSupply())
 
 
 ///// help functions

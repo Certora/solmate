@@ -3,15 +3,21 @@ then
     RULE="--rule $1"
 fi
 
+if [[ "$2" ]]
+then
+    MSG="$2"
+fi
+
 certoraRun \
     certora/harnesses/mixins/ERC4626BalanceOfHarness.sol \
     certora/helpers/DummyERC20A.sol \
     --verify ERC4626BalanceOfHarness:certora/specs/gadi.spec \
     --link ERC4626BalanceOfHarness:asset=DummyERC20A \
-    --solc solc8.0 \
+    --solc solc8.12 \
     --optimistic_loop \
-    --loop_iter 3 \
+    --loop_iter 1 \
     --send_only \
-    --staging \
+    --staging master \
+    --settings -t=3000,-mediumTimeout=4000,-depth=200,-recursionErrorAsAssert=false \
     $RULE \
-    --msg "ERC4626 verification: $1"
+    --msg "ERC4626 balance: $RULE - $MSG"

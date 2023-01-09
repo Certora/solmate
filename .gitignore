@@ -4,3 +4,8 @@
 /bin
 
 .DS_Store
+
+# Certora
+.certora*
+.last_confs
+certora_*
