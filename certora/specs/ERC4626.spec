@@ -161,6 +161,39 @@ rule conversionWeakIntegrity() { // TODO update to include floor for returned va
         "converting assets to shares then back to assets must return assets less than or equal to the original amount";
 }
 
+rule convertToCorrectness(uint256 amount, uint256 shares)
+{
+    assert amount >= convertToAssets(convertToShares(amount));
+    assert shares >= convertToShares(convertToAssets(shares));
+}
+
+rule zeroDepositZeroShares(uint assets, address receiver)
+{
+    env e;
+    
+       uint shares = deposit(e,assets, receiver);
+
+    assert shares == 0 <=> assets == 0;
+}
+
+rule dustFavorsTheHouse(uint assetsIn, address receiver, address owner)
+{
+    env e;
+        
+    require e.msg.sender != currentContract && receiver != currentContract;
+
+    require totalSupply() != 0;
+
+        uint balanceBefore = asset.balanceOf(currentContract);
+
+        uint shares = deposit(e,assetsIn, receiver);
+        uint assetsOut = redeem(e,shares,receiver,owner);
+
+        uint balanceAfter = asset.balanceOf(currentContract);
+
+    assert balanceAfter >= balanceBefore;
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 //// # solvency properties /////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
@@ -223,6 +256,20 @@ rule assetsSupplyChangeTogether { // TODO
     // assert (totalSupplyBefore < totalSupplyAfter <=> totalAssetsBefore < totalAssetsAfter)
     //     && (totalSupplyBefore > totalSupplyAfter <=> totalAssetsBefore > totalAssetsAfter),
         "increases and decreases in totalSupply must occur with corresponding increases and decreases in totalAssets";
+}
+
+rule sumOfAllBalancesIsConstant(method f)
+{
+    env e;
+    calldataarg args;
+
+    uint totalBalancesBefore = asset.totalSupply(e);
+
+    f(e,args);
+
+    uint totalBalancesAfter = asset.totalSupply(e);
+
+    assert totalBalancesBefore == totalBalancesAfter;
 }
 
 ////////////////////////////////////////////////////////////////////////////////

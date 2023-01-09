@@ -75,7 +75,7 @@ rule zeroDepositZeroShares(uint assets, address receiver)
 }
 
 
-// STATUS - finished (showed a frontrun bug)
+// STATUS - finished (property is wrong, there is no up to 2:1, but it can show a fromt-run bug if you know about this type of a bug)
 // Can the loss be more than double 
 
 // Balance - https://vaas-stg.certora.com/output/3106/f633cdcc3e5741ecaa086392e9486171/?anonymousKey=f4c33d32fb82a2b39d9db30f479030142ca51d5d
@@ -98,7 +98,7 @@ rule lossLimit(uint assetsIn, address receiver, address owner)
 }
 
 
-// STATUS - finished (showed a frontrun bug)
+// STATUS - finished (property is wrong, there is no up to 2:1, but it can show a fromt-run bug if you know about this type of a bug)
 // Can the gain be more than double 
 
 // Balance - https://vaas-stg.certora.com/output/3106/f633cdcc3e5741ecaa086392e9486171/?anonymousKey=f4c33d32fb82a2b39d9db30f479030142ca51d5d
