@@ -212,7 +212,7 @@ hook Sstore balanceOf[KEY address addy] uint256 newValue (uint256 oldValue) STOR
 }
 
 invariant totalSupplyIsSumOfBalances()
-    totalSupply() >= sumOfBalances
+    totalSupply() == sumOfBalances
 
 invariant sumOfBalancePairsBounded(address addy1, address addy2)
     addy1 != addy2 => balanceOf(addy1) + balanceOf(addy2) <= totalSupply()
