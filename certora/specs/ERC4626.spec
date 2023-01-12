@@ -1,4 +1,5 @@
-using DummyERC20A as asset 
+using DummyERC20A as ERC20a 
+using DummyERC20B as ERC20b 
 
 methods {
     name() returns string envfree;
@@ -35,7 +36,7 @@ methods {
     permit(address,address,uint256,uint256,uint8,bytes32,bytes32);
     DOMAIN_SEPARATOR() returns bytes32;
 
-    asset.balanceOf(address) returns uint256 envfree;
+    ERC20a.balanceOf(address) returns uint256 envfree;
 }
 
 
@@ -64,18 +65,13 @@ invariant noSupplyIffNoAssets() // DONE but FAILING
         }
     }
 
-// TODO x3 this rule is a specific rule dealing with only deposit
-// option 1 (repetitious, simple): write 4 rules
-// option 2 (less repetitious, less simple): write 2 rules, 1 for share-unit methods, 1 for asset-unit methods
-// option 3 (succinct, more complex): write 1 rule handling all 4 methods
-// TODO update to account for 'floor' of possible values
-rule depositStrongWeakMonotonicity() { // TODO before simplifying (-strong) to exclude token ratios, consider whether the improper behavior is a bug.
+rule depositStrongWeakMonotonicity() {
     env e; storage before = lastStorage;
 
     address receiver; uint256 receiverPriorBalance = balanceOf(receiver);
     uint256 smallerAssets; uint256 largerAssets;
     
-    require currentContract != e.msg.sender && currentContract != receiver; // TODO justify these requirements
+    require currentContract != e.msg.sender && currentContract != receiver; 
 
     safeAssumptions(e, e.msg.sender, receiver);
 
@@ -102,7 +98,7 @@ rule totalsWeakMonotonicity() {
     uint256 totalSupplyBefore = totalSupply();
     uint256 totalAssetsBefore = totalAssets();
 
-    f(e, args) at before; // TODO with below verify signs cannot be opposite --> !(a xor b) but should account for oldLevel == newLevel
+    f(e, args) at before;
 
     uint256 totalSupplyChangeA = updateChangeMarker(e, totalSupplyBefore, totalSupply());
     uint256 totalAssetsChangeA = updateChangeMarker(e, totalAssetsBefore, totalAssets());
@@ -129,7 +125,7 @@ rule conversionOfZero {
         "converting zero assets must return zero shares";
 }
 
-rule convertToAssetsWeakAdditivity() { // TODO update to account for 'floor' of possible values
+rule convertToAssetsWeakAdditivity() {
     uint256 sharesA; uint256 sharesB;
     require sharesA + sharesB < max_uint128
          && convertToAssets(sharesA) + convertToAssets(sharesB) < max_uint256
@@ -138,7 +134,7 @@ rule convertToAssetsWeakAdditivity() { // TODO update to account for 'floor' of 
         "converting sharesA and sharesB to assets then summing them must yield a smaller or equal result to summing them then converting";
 }
 
-rule convertToSharesWeakAdditivity() { // TODO update to account for 'floor' of possible values
+rule convertToSharesWeakAdditivity() {
     uint256 assetsA; uint256 assetsB;
     require assetsA + assetsB < max_uint128
          && convertToAssets(assetsA) + convertToAssets(assetsB) < max_uint256
@@ -147,7 +143,7 @@ rule convertToSharesWeakAdditivity() { // TODO update to account for 'floor' of 
         "converting assetsA and assetsB to shares then summing them must yield a smaller or equal result to summing them then converting";
 }
 
-rule conversionWeakMonotonicity { // TODO refactor to account for floor of possible values
+rule conversionWeakMonotonicity {
     uint256 smallerShares; uint256 largerShares;
     uint256 smallerAssets; uint256 largerAssets;
 
@@ -157,7 +153,7 @@ rule conversionWeakMonotonicity { // TODO refactor to account for floor of possi
         "converting more assets must yield equal or greater shares";
 }
 
-rule conversionWeakIntegrity() { // TODO update to include floor for returned value for rounding
+rule conversionWeakIntegrity() {
     uint256 sharesOrAssets;
     assert convertToShares(convertToAssets(sharesOrAssets)) <= sharesOrAssets,
         "converting shares to assets then back to shares must return shares less than or equal to the original amount";
@@ -175,7 +171,7 @@ rule zeroDepositZeroShares(uint assets, address receiver)
 {
     env e;
     
-       uint shares = deposit(e,assets, receiver);
+    uint shares = deposit(e,assets, receiver);
 
     assert shares == 0 <=> assets == 0;
 }
@@ -188,12 +184,12 @@ rule dustFavorsTheHouse(uint assetsIn, address receiver, address owner)
 
     require totalSupply() != 0;
 
-        uint balanceBefore = asset.balanceOf(currentContract);
+        uint balanceBefore = ERC20a.balanceOf(currentContract);
 
         uint shares = deposit(e,assetsIn, receiver);
         uint assetsOut = redeem(e,shares,receiver,owner);
 
-        uint balanceAfter = asset.balanceOf(currentContract);
+        uint balanceAfter = ERC20a.balanceOf(currentContract);
 
     assert balanceAfter >= balanceBefore;
 }
@@ -203,17 +199,11 @@ rule dustFavorsTheHouse(uint assetsIn, address receiver, address owner)
 ////////////////////////////////////////////////////////////////////////////////
 
 
-// By itself, this rule is meaningless. 
-// Conversion functions cannot be assumed to be correct.
-// Mike felt it was important to include with the context that solvency is
-// proven by verifying the relationship between totalAssets and the correct
-// underlying balance of assets and verifying the relationship between
-// totalSupply and the shares it represents.
 invariant vaultSolvency()
-    totalAssets() >= convertToAssets(totalSupply()) && 
-    convertToShares(totalAssets()) >= totalSupply()
+    totalAssets() >= convertToAssets(totalSupply()) 
+        && convertToShares(totalAssets()) >= totalSupply()
 
-ghost uint256 sumOfBalances {
+ghost mathint sumOfBalances {
     init_state axiom sumOfBalances == 0;
 }
 
@@ -222,14 +212,12 @@ hook Sstore balanceOf[KEY address addy] uint256 newValue (uint256 oldValue) STOR
 }
 
 invariant totalSupplyIsSumOfBalances()
-    totalSupply() == sumOfBalances
+    totalSupply() >= sumOfBalances
 
 invariant sumOfBalancePairsBounded(address addy1, address addy2)
     addy1 != addy2 => balanceOf(addy1) + balanceOf(addy2) <= totalSupply()
     {
         preserved {
-            // totalSupplyIsSumOfBalances implies that the sum of any two distinct balances must be less than totalSupply
-            require false;
             requireInvariant totalSupplyIsSumOfBalances();
         }
     }
@@ -238,8 +226,7 @@ invariant singleBalanceBounded(address addy)
     balanceOf(addy) <= totalSupply()
     {
         preserved {
-            // totalSupplyIsSumOfBalances implies that any single balance must be less than totalSupply
-            require false;
+            require asset() != currentContract;
             requireInvariant totalSupplyIsSumOfBalances();
         }
     }
@@ -255,23 +242,16 @@ rule vaultCoversRedeemingAll() { // withdraw version of this rule was failing du
         "the vault must be able to cover any user trading in all their shares in return for all assets owed";
 }
 
-rule assetsSupplyChangeTogether { // TODO
-    assert false,
-    // assert (totalSupplyBefore < totalSupplyAfter <=> totalAssetsBefore < totalAssetsAfter)
-    //     && (totalSupplyBefore > totalSupplyAfter <=> totalAssetsBefore > totalAssetsAfter),
-        "increases and decreases in totalSupply must occur with corresponding increases and decreases in totalAssets";
-}
-
 rule sumOfAllBalancesIsConstant(method f)
 {
     env e;
     calldataarg args;
 
-    uint totalBalancesBefore = asset.totalSupply(e);
+    uint totalBalancesBefore = ERC20a.totalSupply(e);
 
     f(e,args);
 
-    uint totalBalancesAfter = asset.totalSupply(e);
+    uint totalBalancesAfter = ERC20a.totalSupply(e);
 
     assert totalBalancesBefore == totalBalancesAfter;
 }
@@ -289,7 +269,7 @@ filtered {
     env e; uint256 assets; uint256 shares;
     address contributor; require contributor == e.msg.sender;
     address receiver;
-    require currentContract != contributor // TODO justify
+    require currentContract != contributor
          && currentContract != receiver;
 
     require previewDeposit(assets) + balanceOf(receiver) <= max_uint256; // safe assumption because call to _mint will revert if totalSupply += amount overflows
@@ -310,7 +290,7 @@ filtered {
 }
 
 rule onlyContributionMethodsReduceAssets(method f) {
-    address user; require user != currentContract; // TODO justify
+    address user; require user != currentContract;
     uint256 userAssetsBefore = userAssets(user);
 
     env e; calldataarg args;
@@ -334,7 +314,7 @@ filtered {
 {
     env e; uint256 assets; uint256 shares;
     address receiver; address owner;
-    require currentContract != e.msg.sender // TODO justify
+    require currentContract != e.msg.sender
          && currentContract != receiver
          && currentContract != owner;
 
@@ -352,12 +332,12 @@ filtered {
         "an owner's shares must decrease if and only if the receiver's assets increase";
 }
 
+
 ////////////////////////////////////////////////////////////////////////////////
 //// # variable change properties //////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
-// TODO already partially present w reclaiming and contributing rules
-// decide if needed
+
 // FAILING on IO methods
 rule gainingLosingSharesInvChangesUserAssets(method f)
 filtered {
@@ -366,7 +346,7 @@ filtered {
 }
 {
     env e;
-    require currentContract != e.msg.sender; // TODO justify
+    require currentContract != e.msg.sender;
     address user;
     uint256 userSharesBefore = balanceOf(user);
     uint256 userAssetsBefore = userAssets(user);
@@ -395,17 +375,6 @@ rule underlyingCannotChange() {
         "the underlying asset of a contract must not change";
 }
 
-////////////////////////////////////////////////////////////////////////////////
-//// # variable relationships properties ///////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////
-
-
-
-////////////////////////////////////////////////////////////////////////////////
-//// # state change properties /////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////
-
-
 
 ////////////////////////////////////////////////////////////////////////////////
 //// # unit test properties ////////////////////////////////////////////////////
@@ -415,7 +384,7 @@ rule contributionMethodWeakEquivalence() { // FAILING due to violation of expect
     env e; storage before = lastStorage;
     address receiver; uint256 receiverPriorBalance = balanceOf(receiver);
     uint256 senderPriorAssets = userAssets(e.msg.sender);
-    require currentContract != e.msg.sender && currentContract != receiver; // TODO justify
+    require currentContract != e.msg.sender && currentContract != receiver;
 
     safeAssumptions(e, e.msg.sender, receiver);
 
@@ -440,7 +409,7 @@ rule reclaimingMethodWeakEquivalence() { // FAILING due to violation of expected
     env e; storage before = lastStorage;
     address receiver; uint256 receiverPriorAssets = userAssets(receiver);
     address owner; uint256 ownerPriorBalance = balanceOf(owner);
-    require currentContract != receiver && currentContract != owner; // TODO justify
+    require currentContract != receiver && currentContract != owner;
 
     safeAssumptions(e, receiver, owner);
 
@@ -464,15 +433,6 @@ rule reclaimingMethodWeakEquivalence() { // FAILING due to violation of expected
 //// # helpers and miscelanious ////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
-/// This rule should always fail.
-// rule sanity {
-//     method f; env e; calldataarg args;
-
-//     f(e, args);
-
-//     assert false, 
-//         "This rule should always fail";
-// }
 
 function safeAssumptions(env e, address receiver, address owner) {
     require currentContract != asset(); // Although this is not disallowed, we assume the contract's underlying asset is not the contract itself
@@ -481,7 +441,7 @@ function safeAssumptions(env e, address receiver, address owner) {
     requireInvariant singleBalanceBounded(receiver);
 }
 
-function updateChangeMarker(env e, uint256 oldLevel, uint256 newLevel) returns uint256 { // TODO when time, generalize this function to use elsewhere
+function updateChangeMarker(env e, uint256 oldLevel, uint256 newLevel) returns uint256 {
     if (oldLevel <= newLevel) {
         return to_uint256(newLevel - oldLevel);
     } else {

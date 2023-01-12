@@ -11,6 +11,8 @@ certoraRun \
     --optimistic_loop \
     --loop_iter 3 \
     --send_only \
-    --cloud \
+    --staging master \
+    --rule_sanity \
+    --settings -recursionErrorAsAssert=false \
     $RULE \
     --msg "ERC4626 verification: $1"
