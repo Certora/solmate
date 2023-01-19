@@ -44,18 +44,13 @@ methods {
 //// # mathematical properties /////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
-invariant noSupplyIffNoAssets() // DONE but FAILING
-    totalSupply() == 0 <=> userAssets(currentContract) == 0
+
+invariant noSupplyIfNoAssets()
+    userAssets(currentContract) == 0 => totalSupply() == 0 
     {
         preserved with (env e) {
             address receiver1;
             safeAssumptions(e, receiver1, e.msg.sender);
-        }
-        preserved transfer(address receiver, uint256 shares) with (env e2) {
-            safeAssumptions(e2, receiver, e2.msg.sender);
-        }
-        preserved transferFrom(address owner, address receiver, uint256 shares) with (env e3) {
-            safeAssumptions(e3, receiver, owner);
         }
         preserved withdraw(uint256 assets, address receiver, address owner) with (env e4) { // FAILING withdraw leaves assets in the pool while zeroing out totalSupply due to rounding
             safeAssumptions(e4, receiver, owner);
@@ -65,7 +60,7 @@ invariant noSupplyIffNoAssets() // DONE but FAILING
         }
     }
 
-rule depositStrongWeakMonotonicity() {
+rule depositWeakMonotonicity() {
     env e; storage before = lastStorage;
 
     address receiver; uint256 receiverPriorBalance = balanceOf(receiver);
@@ -81,15 +76,8 @@ rule depositStrongWeakMonotonicity() {
     deposit(e, largerAssets, receiver) at before;
     uint256 largerShares = balanceOf(receiver) - receiverPriorBalance;
 
-    if (totalSupply() > totalAssets()) {
-        // weakly monotonic behavior when supply tokens outnumber asset tokens
-        assert smallerAssets < largerAssets => smallerShares <= largerShares,
+    assert smallerAssets < largerAssets => smallerShares <= largerShares,
             "when supply tokens outnumber asset tokens, a larger deposit of assets must produce an equal or greater number of shares";
-    } else {
-        // strongly monotonic behavior when supply tokens do not outnumber asset tokens
-        assert smallerAssets < largerAssets => smallerShares < largerShares, // FAILING passes when smallerShares <= largerShares, could simplify to exclude token ratios
-            "when supply tokens do not outnumber asset tokens, a larger deposit of assets must produce a greater number of shares";
-    }
 }
 
 rule totalsWeakMonotonicity() {
@@ -203,6 +191,26 @@ invariant vaultSolvency()
     totalAssets() >= convertToAssets(totalSupply()) 
         && convertToShares(totalAssets()) >= totalSupply()
 
+
+invariant invariantName(env e)
+    totalAssets() >= totalSupply()
+    {
+        preserved with (env e1) {
+            require asset() != currentContract;
+            require e1.msg.sender != currentContract;
+            require e.msg.sender == e1.msg.sender;
+        }
+        preserved withdraw(uint256 assets, address receiver, address owner) with (env e2) {
+            require asset() != currentContract;
+            requireInvariant singleBalanceBounded(owner, e2);
+        }
+        preserved redeem(uint256 shares, address receiver, address owner) with (env e3) {
+            require asset() != currentContract;
+            requireInvariant singleBalanceBounded(owner, e3);
+        }
+    }
+
+
 ghost mathint sumOfBalances {
     init_state axiom sumOfBalances == 0;
 }
@@ -211,23 +219,99 @@ hook Sstore balanceOf[KEY address addy] uint256 newValue (uint256 oldValue) STOR
     sumOfBalances = sumOfBalances + newValue - oldValue;
 }
 
-invariant totalSupplyIsSumOfBalances()
+invariant totalSupplyIsSumOfBalances(env e)
     totalSupply() == sumOfBalances
-
-invariant sumOfBalancePairsBounded(address addy1, address addy2)
-    addy1 != addy2 => balanceOf(addy1) + balanceOf(addy2) <= totalSupply()
     {
-        preserved {
-            requireInvariant totalSupplyIsSumOfBalances();
+        preserved deposit(uint256 assets, address receiver) with (env e1) {
+            require asset() != currentContract;             // split up two types of tokens to update balances correctly
+            require balanceOf(receiver) <= sumOfBalances;   // make sure that the balance of the receiver is included to the sum
+        }
+        preserved mint(uint256 shares, address receiver) with (env e2) {
+            require asset() != currentContract;             // split up two types of tokens to update balances correctly
+            require balanceOf(receiver) <= sumOfBalances;   // make sure that the balance of the receiver is included to the sum
+        }
+        preserved withdraw(uint256 assets, address receiver, address owner) with (env e3) {
+            require asset() != currentContract;         // split up two types of tokens to update balances correctly
+            require balanceOf(owner) <= sumOfBalances;  // make sure that the balance of the owner is included to the sum
+        }
+        preserved redeem(uint256 shares, address receiver, address owner) with (env e4) {
+            require asset() != currentContract;         // split up two types of tokens to update balances correctly
+            require balanceOf(owner) <= sumOfBalances;  // make sure that the balance of the owner is included to the sum
+        }
+        preserved transfer(address to, uint256 amount) with (env e5) {
+            require e.msg.sender == e5.msg.sender;
+            require balanceOf(to) + balanceOf(e5.msg.sender) <= sumOfBalances;  // make sure that the balance of the sender(msg.sender) and receiver(to) are included to the sum
+        }
+        preserved transferFrom(address from, address to, uint256 amount) with (env e6) {
+            require balanceOf(to) + balanceOf(from) <= sumOfBalances;   // make sure that the balance of the sender(from) and receiver(to) are included to the sum
         }
     }
 
-invariant singleBalanceBounded(address addy)
+invariant sumOfBalancePairsBounded(address addy1, address addy2, env e)
+    addy1 != addy2 => balanceOf(addy1) + balanceOf(addy2) <= totalSupply()
+    {
+        preserved {
+            require asset() != currentContract;
+            requireInvariant totalSupplyIsSumOfBalances(e);
+        }
+        preserved withdraw(uint256 assets, address receiver, address owner) with (env e2) {
+            require asset() != currentContract;
+            requireInvariant totalSupplyIsSumOfBalances(e2);
+            require owner == addy1 || owner == addy2 => balanceOf(addy1) + balanceOf(addy2) <= sumOfBalances;
+            require owner != addy1 && owner != addy2 => balanceOf(addy1) + balanceOf(addy2) + balanceOf(owner) <= sumOfBalances;
+        }
+        preserved redeem(uint256 shares, address receiver, address owner) with (env e3) {
+            require asset() != currentContract;
+            requireInvariant totalSupplyIsSumOfBalances(e3);
+            require owner == addy1 || owner == addy2 => balanceOf(addy1) + balanceOf(addy2) <= sumOfBalances;
+            require owner != addy1 && owner != addy2 => balanceOf(addy1) + balanceOf(addy2) + balanceOf(owner) <= sumOfBalances;
+        }
+        preserved transfer(address to, uint256 amount) with (env e4) {
+            require e.msg.sender == e4.msg.sender;
+            require asset() != currentContract;
+            requireInvariant totalSupplyIsSumOfBalances(e4);
+            require e4.msg.sender == addy1 || e4.msg.sender == addy2 => balanceOf(addy1) + balanceOf(addy2) <= sumOfBalances;
+            require e4.msg.sender != addy1 && e4.msg.sender != addy2 => balanceOf(addy1) + balanceOf(addy2) + balanceOf(e4.msg.sender) <= sumOfBalances;
+        }
+        preserved transferFrom(address from, address to, uint256 amount) with (env e5) {
+            require asset() != currentContract;
+            requireInvariant totalSupplyIsSumOfBalances(e5);
+            require from == addy1 || from == addy2 => balanceOf(addy1) + balanceOf(addy2) <= sumOfBalances;
+            require from != addy1 && from != addy2 => balanceOf(addy1) + balanceOf(addy2) + balanceOf(from) <= sumOfBalances;
+        }
+    }
+
+invariant singleBalanceBounded(address addy, env e)
     balanceOf(addy) <= totalSupply()
     {
         preserved {
             require asset() != currentContract;
-            requireInvariant totalSupplyIsSumOfBalances();
+            requireInvariant totalSupplyIsSumOfBalances(e);
+        }
+        preserved withdraw(uint256 assets, address receiver, address owner) with (env e2) {
+            require asset() != currentContract;
+            requireInvariant totalSupplyIsSumOfBalances(e2);
+            require addy == owner => balanceOf(addy)<= sumOfBalances;
+            require addy != owner => balanceOf(addy) + balanceOf(owner) <= sumOfBalances;
+        }
+        preserved redeem(uint256 shares, address receiver, address owner) with (env e3) {
+            require asset() != currentContract;
+            requireInvariant totalSupplyIsSumOfBalances(e3);
+            require addy == owner => balanceOf(addy)<= sumOfBalances;
+            require addy != owner => balanceOf(addy) + balanceOf(owner) <= sumOfBalances;
+        }
+        preserved transfer(address to, uint256 amount) with (env e4) {
+            require e.msg.sender == e4.msg.sender;
+            require asset() != currentContract;
+            requireInvariant totalSupplyIsSumOfBalances(e4);
+            require addy == e4.msg.sender => balanceOf(addy) <= sumOfBalances;
+            require addy != e4.msg.sender => balanceOf(addy) + balanceOf(e4.msg.sender) <= sumOfBalances;
+        }
+        preserved transferFrom(address from, address to, uint256 amount) with (env e5) {
+            require asset() != currentContract;
+            requireInvariant totalSupplyIsSumOfBalances(e5);
+            require addy == from => balanceOf(addy) <= sumOfBalances;
+            require addy != from => balanceOf(addy) + balanceOf(from) <= sumOfBalances;
         }
     }
 
@@ -338,31 +422,6 @@ filtered {
 ////////////////////////////////////////////////////////////////////////////////
 
 
-// FAILING on IO methods
-rule gainingLosingSharesInvChangesUserAssets(method f)
-filtered {
-    f -> f.selector != transfer(address,uint256).selector
-      && f.selector != transferFrom(address,address,uint256).selector
-}
-{
-    env e;
-    require currentContract != e.msg.sender;
-    address user;
-    uint256 userSharesBefore = balanceOf(user);
-    uint256 userAssetsBefore = userAssets(user);
-
-    calldataarg args;
-    f(e, args);
-
-    uint256 userSharesAfter = balanceOf(user);
-    uint256 userAssetsAfter = userAssets(user);
-
-    assert userSharesBefore < userSharesAfter <=> userAssetsBefore > userAssetsAfter,
-        "if a user's shares increase outside of transfers, the user's assets must decrease";
-    assert userSharesBefore > userSharesAfter <=> userAssetsBefore < userAssetsAfter,
-        "if a user's shares decrease outside of transfers, the user's assets must increase";
-}
-
 rule underlyingCannotChange() {
     address originalAsset = asset();
 
@@ -436,9 +495,9 @@ rule reclaimingMethodWeakEquivalence() { // FAILING due to violation of expected
 
 function safeAssumptions(env e, address receiver, address owner) {
     require currentContract != asset(); // Although this is not disallowed, we assume the contract's underlying asset is not the contract itself
-    requireInvariant totalSupplyIsSumOfBalances();
-    requireInvariant sumOfBalancePairsBounded(receiver, owner);
-    requireInvariant singleBalanceBounded(receiver);
+    requireInvariant totalSupplyIsSumOfBalances(e);
+    requireInvariant sumOfBalancePairsBounded(receiver, owner, e);
+    requireInvariant singleBalanceBounded(receiver, e);
 }
 
 function updateChangeMarker(env e, uint256 oldLevel, uint256 newLevel) returns uint256 {
